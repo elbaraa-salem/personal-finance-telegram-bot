@@ -56,12 +56,19 @@ type HistoryMessages = {
   titles: {
     recent: (count: number) => string;
     date: (date: string) => string;
+    month: (month: string) => string;
     day: string;
     week: string;
-    month: string;
     year: string;
   };
   empty: string;
+  noTransactionsYet: string;
+  noTransactionsInMonth: string;
+  chooseReportMonth: string;
+  chooseHistoryMonth: string;
+  previousPage: string;
+  nextPage: string;
+  page: (page: number, totalPages: number) => string;
   invalidUsage: string;
 };
 
@@ -216,12 +223,19 @@ export const translations: Record<SupportedLanguage, Messages> = {
         titles: {
             recent: (count: number) => `🧾 آخر ${count} عملية`,
             date: (date: string) => `🧾 عمليات يوم ${date}`,
+            month: (month: string) => `🧾 عمليات شهر ${month}`,
             day: "🧾 عمليات اليوم",
             week: "🧾 عمليات هذا الأسبوع",
-            month: "🧾 عمليات هذا الشهر",
             year: "🧾 عمليات هذه السنة",
         },
         empty: "لا توجد عمليات في هذه الفترة.",
+        noTransactionsYet: "لا توجد عمليات بعد.",
+        noTransactionsInMonth: "لا توجد عمليات في هذا الشهر.",
+        chooseReportMonth: "اختر الشهر الذي تريد تقريره:",
+        chooseHistoryMonth: "اختر الشهر لعرض العمليات:",
+        previousPage: "السابق",
+        nextPage: "التالي",
+        page: (page: number, totalPages: number) => `صفحة ${page} من ${totalPages}`,
         invalidUsage:
             "استخدم الأمر بهذا الشكل:\n" +
             "/history\n" +
@@ -438,12 +452,19 @@ export const translations: Record<SupportedLanguage, Messages> = {
         titles: {
             recent: (count: number) => `🧾 Последние операции: ${count}`,
             date: (date: string) => `🧾 Операции за ${date}`,
+            month: (month: string) => `🧾 Операции за ${month}`,
             day: "🧾 Операции за сегодня",
             week: "🧾 Операции за эту неделю",
-            month: "🧾 Операции за этот месяц",
             year: "🧾 Операции за этот год",
         },
         empty: "В этой период нет операций.",
+        noTransactionsYet: "Операций пока нет.",
+        noTransactionsInMonth: "В этом месяце нет операций.",
+        chooseReportMonth: "Выберите месяц для отчёта:",
+        chooseHistoryMonth: "Выберите месяц для просмотра операций:",
+        previousPage: "Назад",
+        nextPage: "Вперёд",
+        page: (page: number, totalPages: number) => `Страница ${page} из ${totalPages}`,
         invalidUsage:
             "Используйте команду так:\n" +
             "/history\n" +
@@ -659,12 +680,19 @@ export const translations: Record<SupportedLanguage, Messages> = {
         titles: {
             recent: (count: number) => `🧾 Last ${count} transactions`,
             date: (date: string) => `🧾 Transactions for ${date}`,
+            month: (month: string) => `🧾 Transactions for ${month}`,
             day: "🧾 Today's transactions",
             week: "🧾 This week's transactions",
-            month: "🧾 This month's transactions",
             year: "🧾 This year's transactions",
         },
         empty: "There are no transactions in this period.",
+        noTransactionsYet: "No transactions yet.",
+        noTransactionsInMonth: "No transactions in this month.",
+        chooseReportMonth: "Choose a month for the report:",
+        chooseHistoryMonth: "Choose a month to view transactions:",
+        previousPage: "Previous",
+        nextPage: "Next",
+        page: (page: number, totalPages: number) => `Page ${page} of ${totalPages}`,
         invalidUsage:
             "Use the command like this:\n" +
             "/history\n" +

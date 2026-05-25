@@ -38,6 +38,12 @@ export type CategorySummaryItem = {
   total: number;
 };
 
+export type TransactionMonthItem = {
+  year: number;
+  month: number;
+  transactionCount: number;
+};
+
 type AggregatedCategorySummary = {
   _id: {
     type: TransactionType;
@@ -45,6 +51,14 @@ type AggregatedCategorySummary = {
     category: string;
   };
   total: number;
+};
+
+type AggregatedTransactionMonth = {
+  _id: {
+    year: number;
+    month: number;
+  };
+  transactionCount: number;
 };
 
 export class TransactionRepository {
@@ -138,7 +152,8 @@ export class TransactionRepository {
   userId: Types.ObjectId,
   startDate: Date,
   endDate: Date,
-  limit: number
+  limit: number,
+  skip = 0
   ): Promise<TransactionDocument[]> {
   return TransactionModel.find({
     userId,
@@ -148,8 +163,68 @@ export class TransactionRepository {
     },
   })
     .sort({ transactionDate: -1, createdAt: -1 })
+    .skip(skip)
     .limit(limit)
     .exec();
+  }
+
+  async countByUserIdAndDateRange(
+    userId: Types.ObjectId,
+    startDate: Date,
+    endDate: Date
+  ): Promise<number> {
+    return TransactionModel.countDocuments({
+      userId,
+      transactionDate: {
+        $gte: startDate,
+        $lt: endDate,
+      },
+    }).exec();
+  }
+
+  async getAvailableMonthsByUserId(
+    userId: Types.ObjectId
+  ): Promise<TransactionMonthItem[]> {
+    const result = await TransactionModel.aggregate<AggregatedTransactionMonth>([
+      {
+        $match: {
+          userId,
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: {
+              $year: {
+                date: "$transactionDate",
+                timezone: "UTC",
+              },
+            },
+            month: {
+              $month: {
+                date: "$transactionDate",
+                timezone: "UTC",
+              },
+            },
+          },
+          transactionCount: {
+            $sum: 1,
+          },
+        },
+      },
+      {
+        $sort: {
+          "_id.year": -1,
+          "_id.month": -1,
+        },
+      },
+    ]);
+
+    return result.map((item) => ({
+      year: item._id.year,
+      month: item._id.month,
+      transactionCount: item.transactionCount,
+    }));
   }
 
 

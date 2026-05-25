@@ -129,13 +129,12 @@ async function replyWithPeriodHistory(
       period
     );
 
-    await replyWithTransactions(
-      ctx,
-      messages.history.titles[titleKey],
-      transactions,
-      language,
-      currency
-    );
+    const title =
+      titleKey === "month"
+        ? messages.history.titles.month(formatDate(new Date()).slice(0, 7))
+        : messages.history.titles[titleKey];
+
+    await replyWithTransactions(ctx, title, transactions, language, currency);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : messages.common.unexpectedError;

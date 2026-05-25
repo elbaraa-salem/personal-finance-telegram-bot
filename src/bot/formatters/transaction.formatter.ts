@@ -16,13 +16,21 @@ export function formatTransactionLine(
     transaction.type === "income"
       ? messages.transaction.income
       : messages.transaction.expense;
+  const scopeText =
+    transaction.type === "expense" && transaction.scope
+      ? ` | ${
+          transaction.scope === "personal"
+            ? messages.transaction.personalScope
+            : messages.transaction.familyScope
+        }`
+      : "";
 
   const noteText = transaction.note
     ? `\n   ${messages.transaction.note}: ${transaction.note}`
     : "";
 
   return (
-    `${index + 1}. ${icon} ${label} | ` +
+    `${index + 1}. ${icon} ${label}${scopeText} | ` +
     `${formatAmount(transaction.amount, currency)} | ` +
     `${transaction.category} | ` +
     `${formatDate(transaction.transactionDate)}` +

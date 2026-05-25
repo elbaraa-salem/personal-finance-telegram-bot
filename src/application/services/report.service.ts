@@ -1,9 +1,11 @@
 import {
   CategorySummaryItem,
   TransactionRepository,
+  TransactionMonthItem,
   TransactionSummary,
 } from "../../infrastructure/repositories/transaction.repository";
 import { UserRepository } from "../../infrastructure/repositories/user.repository";
+import { getMonthDateRange } from "./month-date-range";
 
 export type ReportPeriod = "all" | "day" | "week" | "month" | "year";
 
@@ -75,6 +77,52 @@ export class ReportService {
 
     return {
       period,
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate,
+      categorySummary,
+      ...summary,
+    };
+  }
+
+  async getAvailableReportMonths(
+    telegramId: number
+  ): Promise<TransactionMonthItem[]> {
+    const user = await this.userRepository.findByTelegramId(telegramId);
+
+    if (!user) {
+      throw new Error("User not found. Please send /start first.");
+    }
+
+    return this.transactionRepository.getAvailableMonthsByUserId(user._id);
+  }
+
+  async getMonthReport(
+    telegramId: number,
+    year: number,
+    month: number
+  ): Promise<ReportResult> {
+    const user = await this.userRepository.findByTelegramId(telegramId);
+
+    if (!user) {
+      throw new Error("User not found. Please send /start first.");
+    }
+
+    const dateRange = getMonthDateRange(year, month);
+    const summary =
+      await this.transactionRepository.getSummaryByUserIdAndDateRange(
+        user._id,
+        dateRange.startDate,
+        dateRange.endDate
+      );
+    const categorySummary =
+      await this.transactionRepository.getCategorySummaryByUserIdAndDateRange(
+        user._id,
+        dateRange.startDate,
+        dateRange.endDate
+      );
+
+    return {
+      period: "month",
       startDate: dateRange.startDate,
       endDate: dateRange.endDate,
       categorySummary,

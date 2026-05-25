@@ -8,27 +8,31 @@ import { getMessages, MenuMessages } from "../i18n/translations";
 
 type MenuButtonKey = keyof MenuMessages;
 
+const MAIN_MENU_LAYOUT: MenuButtonKey[][] = [
+  ["reportDay"],
+  [ "history", "moreReports"],
+  [ "addFamilyExpense", "addPersonalExpense"],
+  [ "addIncome", "deleteLast" ],
+  ["settings", "help"],
+];
+
 export function createMainMenuKeyboard(
   language: SupportedLanguage = defaultLanguage
 ): Keyboard {
   const menu = getMessages(language).menu;
+  const keyboard = new Keyboard();
 
-  return new Keyboard()
-    .text(menu.addIncome)
-    .row()
-    .text(menu.addFamilyExpense)
-    .text(menu.addPersonalExpense)
-    .row()
-    .text(menu.reportDay)
-    .text(menu.moreReports)
-    .row()
-    .text(menu.history)
-    .text(menu.deleteLast)
-    .row()
-    .text(menu.settings)
-    .row()
-    .text(menu.help)
-    .resized();
+  MAIN_MENU_LAYOUT.forEach((row, rowIndex) => {
+    row.forEach((key) => {
+      keyboard.text(menu[key]);
+    });
+
+    if (rowIndex < MAIN_MENU_LAYOUT.length - 1) {
+      keyboard.row();
+    }
+  });
+
+  return keyboard.resized();
 }
 
 export function getMainMenuButtonTexts(key: MenuButtonKey): string[] {

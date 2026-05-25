@@ -4,23 +4,23 @@ import {
   ReportService,
 } from "../../application/services/report.service";
 import { HistoryService } from "../../application/services/history.service";
+import { isValidYearMonth } from "../../application/services/month-date-range";
 import { createMainMenuKeyboard, getMainMenuButtonTexts } from "../keyboards/main-menu.keyboard";
 import { formatReport } from "../formatters/report.formatter";
 import { formatTransactionLine } from "../formatters/transaction.formatter";
 import { BotContext } from "../context";
 import { UserService } from "../../application/services/user.service";
 import { getMessages } from "../i18n/translations";
-import { config } from "../../config/env";
 import { askForLanguage } from "./language.command";
 import { askForCurrency } from "./currency.command";
-import {
-  createReportOptionsKeyboard,
-  reportOptionCallbacks,
-} from "../keyboards/report-options.keyboard";
 import {
   createSettingsOptionsKeyboard,
   settingsOptionCallbacks,
 } from "../keyboards/settings-options.keyboard";
+import {
+  createHistoryPaginationKeyboard,
+  createMonthSelectionKeyboard,
+} from "../keyboards/month-selection.keyboard";
 
 async function replyWithReport(
   ctx: Context,
@@ -56,7 +56,90 @@ async function replyWithReport(
   }
 }
 
-async function replyWithRecentHistory(
+function formatYearMonth(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function parseYearMonth(value: string): { year: number; month: number } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+
+  if (!isValidYearMonth(year, month)) {
+    return null;
+  }
+
+  return { year, month };
+}
+
+function parseHistoryMonthCallback(
+  data: string
+): { year: number; month: number; page: number } | null {
+  const match = /^history_month:(\d{4}-\d{2}):(\d+)$/.exec(data);
+
+  if (!match) {
+    return null;
+  }
+
+  const yearMonthText = match[1];
+  const page = Number(match[2]);
+
+  if (!yearMonthText || !Number.isInteger(page) || page < 1) {
+    return null;
+  }
+
+  const yearMonth = parseYearMonth(yearMonthText);
+
+  if (!yearMonth) {
+    return null;
+  }
+
+  return {
+    ...yearMonth,
+    page,
+  };
+}
+
+async function replyWithAvailableReportMonths(
+  ctx: Context,
+  reportService: ReportService,
+  userService: UserService
+): Promise<void> {
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    await ctx.reply(getMessages().common.readUserError);
+    return;
+  }
+
+  const language = await userService.getUserLanguage(telegramUser.id);
+  const messages = getMessages(language);
+
+  try {
+    const months = await reportService.getAvailableReportMonths(telegramUser.id);
+
+    if (months.length === 0) {
+      await ctx.reply(messages.history.noTransactionsYet);
+      return;
+    }
+
+    await ctx.reply(messages.history.chooseReportMonth, {
+      reply_markup: createMonthSelectionKeyboard(months, "report_month", language),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : messages.common.unexpectedError;
+
+    await ctx.reply(`❌ ${message}`);
+  }
+}
+
+async function replyWithAvailableHistoryMonths(
   ctx: Context,
   historyService: HistoryService,
   userService: UserService
@@ -68,29 +151,122 @@ async function replyWithRecentHistory(
     return;
   }
   const language = await userService.getUserLanguage(telegramUser.id);
+  const messages = getMessages(language);
+
+  try {
+    const months = await historyService.getAvailableHistoryMonths(telegramUser.id);
+
+    if (months.length === 0) {
+      await ctx.reply(messages.history.noTransactionsYet);
+      return;
+    }
+
+    await ctx.reply(messages.history.chooseHistoryMonth, {
+      reply_markup: createMonthSelectionKeyboard(months, "history_month", language),
+    });
+  } catch (error) {
+    const message =
+        error instanceof Error ? error.message : messages.common.unexpectedError;
+
+    await ctx.reply(`❌ ${message}`);
+  }
+}
+
+async function replyWithMonthReport(
+  ctx: Context,
+  reportService: ReportService,
+  userService: UserService,
+  year: number,
+  month: number
+): Promise<void> {
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    await ctx.reply(getMessages().common.readUserError);
+    return;
+  }
+
+  const language = await userService.getUserLanguage(telegramUser.id);
   const currency = await userService.getUserCurrency(telegramUser.id);
   const messages = getMessages(language);
 
   try {
-    const transactions = await historyService.getRecentTransactions(
-      telegramUser.id,
-      5
-    );
+    const report = await reportService.getMonthReport(telegramUser.id, year, month);
 
-    if (transactions.length === 0) {
-      await ctx.reply(messages.history.empty);
+    if (report.transactionCount === 0) {
+      await ctx.reply(messages.history.noTransactionsInMonth);
       return;
     }
 
-    const historyText = transactions
-        .map((transaction, index) =>
-            formatTransactionLine(transaction, index, language, currency)
-        )
-        .join("\n\n");
+    await ctx.reply(formatReport(report, language, currency));
+  } catch (error) {
+    const message =
+        error instanceof Error ? error.message : messages.common.unexpectedError;
 
-    await ctx.reply(
-        `${messages.history.titles.recent(transactions.length)}\n\n${historyText}`
+    await ctx.reply(`❌ ${message}`);
+  }
+}
+
+async function replyWithMonthHistory(
+  ctx: Context,
+  historyService: HistoryService,
+  userService: UserService,
+  year: number,
+  month: number,
+  page: number
+): Promise<void> {
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    await ctx.reply(getMessages().common.readUserError);
+    return;
+  }
+
+  const language = await userService.getUserLanguage(telegramUser.id);
+  const currency = await userService.getUserCurrency(telegramUser.id);
+  const messages = getMessages(language);
+
+  try {
+    const result = await historyService.getTransactionsForMonth(
+      telegramUser.id,
+      year,
+      month,
+      page
     );
+
+    if (result.transactions.length === 0) {
+      await ctx.reply(messages.history.noTransactionsInMonth);
+      return;
+    }
+
+    const historyText = result.transactions
+      .map((transaction, index) =>
+        formatTransactionLine(
+          transaction,
+          (result.page - 1) * result.pageSize + index,
+          language,
+          currency
+        )
+      )
+      .join("\n\n");
+    const title = messages.history.titles.month(formatYearMonth(year, month));
+    const pageText = messages.history.page(result.page, result.totalPages);
+    const replyMarkup = createHistoryPaginationKeyboard(
+      year,
+      month,
+      result.page,
+      result.totalPages,
+      language
+    );
+
+    if (replyMarkup) {
+      await ctx.reply(`${title}\n${pageText}\n\n${historyText}`, {
+        reply_markup: replyMarkup,
+      });
+      return;
+    }
+
+    await ctx.reply(`${title}\n\n${historyText}`);
   } catch (error) {
     const message =
         error instanceof Error ? error.message : messages.common.unexpectedError;
@@ -107,7 +283,7 @@ export function registerMenuCommandHandlers(
 ): void {
 
   bot.hears(getMainMenuButtonTexts("history"), async (ctx) => {
-    await replyWithRecentHistory(ctx, historyService, userService);
+    await replyWithAvailableHistoryMonths(ctx, historyService, userService);
   });
 
   bot.hears(getMainMenuButtonTexts("reportDay"), async (ctx) => {
@@ -115,38 +291,44 @@ export function registerMenuCommandHandlers(
   });
 
   bot.hears(getMainMenuButtonTexts("moreReports"), async (ctx) => {
-    const telegramUser = ctx.from;
-
-    if (!telegramUser) {
-        await ctx.reply(getMessages().common.readUserError);
-        return;
-    }
-
-    const language = await userService.getUserLanguage(telegramUser.id);
-
-    await ctx.reply(getMessages(language).menu.moreReports, {
-        reply_markup: createReportOptionsKeyboard(language),
-    });
+    await replyWithAvailableReportMonths(ctx, reportService, userService);
   });
 
-    bot.callbackQuery(reportOptionCallbacks.all, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await replyWithReport(ctx, reportService, userService, "all");
+    bot.callbackQuery(/^report_month:(\d{4}-\d{2})$/, async (ctx) => {
+      await ctx.answerCallbackQuery();
+
+      const yearMonth = parseYearMonth(ctx.match[1] ?? "");
+
+      if (!yearMonth) {
+        return;
+      }
+
+      await replyWithMonthReport(
+        ctx,
+        reportService,
+        userService,
+        yearMonth.year,
+        yearMonth.month
+      );
     });
 
-    bot.callbackQuery(reportOptionCallbacks.week, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await replyWithReport(ctx, reportService, userService, "week");
-    });
+    bot.callbackQuery(/^history_month:(\d{4}-\d{2}):(\d+)$/, async (ctx) => {
+      await ctx.answerCallbackQuery();
 
-    bot.callbackQuery(reportOptionCallbacks.month, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await replyWithReport(ctx, reportService, userService, "month");
-    });
+      const parsedCallback = parseHistoryMonthCallback(ctx.callbackQuery.data);
 
-    bot.callbackQuery(reportOptionCallbacks.year, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await replyWithReport(ctx, reportService, userService, "year");
+      if (!parsedCallback) {
+        return;
+      }
+
+      await replyWithMonthHistory(
+        ctx,
+        historyService,
+        userService,
+        parsedCallback.year,
+        parsedCallback.month,
+        parsedCallback.page
+      );
     });
 
     bot.hears(getMainMenuButtonTexts("settings"), async (ctx) => {
