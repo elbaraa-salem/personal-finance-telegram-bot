@@ -4,6 +4,7 @@ import {
   TransactionModel,
   TransactionType,
   TransactionScope,
+  TransactionSource,
 } from "../database/models/transaction.model";
 
 type CreateTransactionData = {
@@ -14,6 +15,7 @@ type CreateTransactionData = {
   category: string;
   transactionDate: Date;
   note?: string;
+  source?: TransactionSource;
 };
 
 export type TransactionSummary = {
@@ -48,6 +50,10 @@ type AggregatedCategorySummary = {
 export class TransactionRepository {
   async create(data: CreateTransactionData): Promise<TransactionDocument> {
     return TransactionModel.create(data);
+  }
+
+  async createMany(data: CreateTransactionData[]): Promise<TransactionDocument[]> {
+    return TransactionModel.insertMany(data);
   }
 
   async findRecentByUserId(

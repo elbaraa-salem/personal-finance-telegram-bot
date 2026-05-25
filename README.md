@@ -4,6 +4,7 @@ A Telegram bot for tracking personal income, expenses, reports, recent transacti
 
 The goal of this project is to provide a simple and practical personal finance assistant that can be used directly from Telegram.
 
+
 ## Features
 
 - Add income transactions

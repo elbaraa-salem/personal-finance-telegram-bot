@@ -16,6 +16,10 @@ import { registerMenuCommandHandlers } from "./bot/commands/menu.command";
 import { registerTransactionFlowCommand } from "./bot/commands/transaction-flow.command";
 import { registerLanguageCommand } from "./bot/commands/language.command";
 import { registerCurrencyCommand } from "./bot/commands/currency.command";
+import { registerReceiptImportCommand } from "./bot/commands/receipt-import.command";
+import { GeminiReceiptExtractor } from "./infrastructure/ai/receipt-extractor";
+import { config } from "./config/env";
+import { AiTransactionParserService } from "./application/services/ai-transaction-parser.service";
 
 async function main(): Promise<void> {
   await connectToDatabase();
@@ -41,10 +45,26 @@ async function main(): Promise<void> {
     userRepository
   );
 
+  const receiptExtractor = config.geminiApiKey
+    ? new GeminiReceiptExtractor(config.geminiApiKey, config.geminiModel)
+    : null;
+  const aiTransactionParser = new AiTransactionParserService();
+
   registerStartCommand(bot, userService);
   registerLanguageCommand(bot, userService);
   registerCurrencyCommand(bot, userService);
-  registerTransactionFlowCommand(bot, transactionService, userService);
+  registerReceiptImportCommand(
+    bot,
+    receiptExtractor,
+    transactionService,
+    userService
+  );
+  registerTransactionFlowCommand(
+    bot,
+    transactionService,
+    userService,
+    aiTransactionParser
+  );
   
   registerHelpCommand(bot, userService);
   registerTransactionCommands(bot, transactionService, userService);

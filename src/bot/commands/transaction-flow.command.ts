@@ -1,5 +1,7 @@
 import { Bot } from "grammy";
+import { AiTransactionParserService } from "../../application/services/ai-transaction-parser.service";
 import { TransactionService } from "../../application/services/transaction.service";
+import { config } from "../../config/env";
 import { TransactionScope, TransactionType } from "../../infrastructure/database/models/transaction.model";
 import { BotContext } from "../context";
 import { UserService } from "../../application/services/user.service";
@@ -16,23 +18,10 @@ import {
 } from "../keyboards/cancel-flow.keyboard";
 import { getMessages } from "../i18n/translations";
 import { defaultLanguage, SupportedLanguage } from "../i18n/language";
-
-type ParsedTransactionLine = {
-  amount: number;
-  category: string;
-  note?: string;
-  transactionDate?: Date;
-};
-
-function parseAmount(text: string): number | null {
-  const amount = Number(text.replace(",", "."));
-
-  if (Number.isNaN(amount) || amount <= 0) {
-    return null;
-  }
-
-  return amount;
-}
+import {
+  createScopeConfirmationKeyboard,
+  scopeConfirmationCallbacks,
+} from "../keyboards/scope-confirmation.keyboard";
 
 function parseDate(text: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
@@ -61,54 +50,6 @@ function parseDate(text: string): Date | null {
     date.getUTCDate() === day;
 
   return isValidDate ? date : null;
-}
-
-function isDateText(text: string | undefined): text is string {
-  return typeof text === "string" && /^\d{4}-\d{2}-\d{2}$/.test(text);
-}
-
-function parseTransactionLine(text: string): ParsedTransactionLine | null {
-  const parts = text.trim().split(/\s+/);
-
-  const amountText = parts[0];
-  const category = parts[1];
-
-  if (!amountText || !category) {
-    return null;
-  }
-
-  const amount = parseAmount(amountText);
-
-  if (!amount) {
-    return null;
-  }
-
-  const possibleDate = parts[2];
-
-  if (isDateText(possibleDate)) {
-    const transactionDate = parseDate(possibleDate);
-
-    if (!transactionDate) {
-      return null;
-    }
-
-    const noteParts = parts.slice(3);
-
-    return {
-      amount,
-      category,
-      transactionDate,
-      ...(noteParts.length > 0 ? { note: noteParts.join(" ") } : {}),
-    };
-  }
-
-  const noteParts = parts.slice(2);
-
-  return {
-    amount,
-    category,
-    ...(noteParts.length > 0 ? { note: noteParts.join(" ") } : {}),
-  };
 }
 
 function getTransactionLabel(
@@ -195,6 +136,170 @@ function shouldBlockDuringTransactionFlow(text: string): boolean {
   return isCommandText(text) || isMainMenuButtonText(text);
 }
 
+function isShortcutTransactionText(text: string): boolean {
+  const trimmedText = text.trim();
+
+  return trimmedText.startsWith("+") || trimmedText.startsWith("-");
+}
+
+function getCurrentDateInTimezone(timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  return `${year}-${month}-${day}`;
+}
+
+function parseIsoDateToUtcDate(text: string): Date | null {
+  const date = parseDate(text);
+
+  return date;
+}
+
+async function saveParsedTransaction(
+  ctx: BotContext,
+  transactionService: TransactionService,
+  userService: UserService,
+  data: {
+    type: TransactionType;
+    scope?: TransactionScope;
+    amount: number;
+    category: string;
+    note?: string;
+    transactionDate: string;
+  }
+): Promise<void> {
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    await ctx.reply(getMessages().common.readUserError);
+    return;
+  }
+
+  const language = await userService.getUserLanguage(telegramUser.id);
+  const currency = await userService.getUserCurrency(telegramUser.id);
+  const messages = getMessages(language);
+  const transactionDate = parseIsoDateToUtcDate(data.transactionDate);
+
+  if (!transactionDate) {
+    await ctx.reply(messages.transactionFlow.invalidDate);
+    return;
+  }
+
+  const transaction = await transactionService.addTransaction({
+    telegramId: telegramUser.id,
+    type: data.type,
+    ...(data.scope ? { scope: data.scope } : {}),
+    amount: data.amount,
+    category: data.category,
+    ...(data.note ? { note: data.note } : {}),
+    transactionDate,
+  });
+
+  await ctx.reply(formatCreatedTransaction(transaction, language, currency), {
+    reply_markup: createMainMenuKeyboard(language),
+  });
+}
+
+async function parseAndHandleNaturalTransaction(
+  ctx: BotContext,
+  text: string,
+  aiTransactionParser: AiTransactionParserService,
+  transactionService: TransactionService,
+  userService: UserService,
+  forcedType?: TransactionType,
+  forcedScope?: TransactionScope
+): Promise<void> {
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    ctx.session.pendingTransaction = null;
+    await ctx.reply(getMessages().common.readUserError);
+    return;
+  }
+
+  const language = await userService.getUserLanguage(telegramUser.id);
+  const messages = getMessages(language);
+  const replyWithFlowMarkup = async (message: string): Promise<void> => {
+    if (forcedType) {
+      await ctx.reply(message, {
+        reply_markup: createCancelFlowKeyboard(language),
+      });
+      return;
+    }
+
+    await ctx.reply(message);
+  };
+
+  if (!aiTransactionParser.isConfigured()) {
+    await replyWithFlowMarkup(messages.naturalTransaction.aiNotConfigured);
+    return;
+  }
+
+  try {
+    const timezone = config.defaultTimezone;
+    const result = await aiTransactionParser.parse(text, {
+      language,
+      timezone,
+      currentDate: getCurrentDateInTimezone(timezone),
+      ...(forcedType ? { forcedType } : {}),
+      ...(forcedScope ? { forcedScope } : {}),
+    });
+
+    if (result.status === "not_transaction") {
+      await replyWithFlowMarkup(messages.naturalTransaction.notDetected);
+      return;
+    }
+
+    if (result.status === "missing_details") {
+      await replyWithFlowMarkup(result.question);
+      return;
+    }
+
+    const scope = result.type === "expense" ? result.scope ?? forcedScope ?? null : null;
+
+    if (result.type === "expense" && !scope) {
+      ctx.session.awaitingScopeConfirmation = {
+        type: "expense",
+        amount: result.amount,
+        category: result.category,
+        ...(result.note ? { note: result.note } : {}),
+        transactionDate: result.transactionDate,
+      };
+      ctx.session.pendingTransaction = null;
+
+      await ctx.reply(messages.naturalTransaction.askScope, {
+        reply_markup: createScopeConfirmationKeyboard(language),
+      });
+      return;
+    }
+
+    await saveParsedTransaction(ctx, transactionService, userService, {
+      type: result.type,
+      ...(scope ? { scope } : {}),
+      amount: result.amount,
+      category: result.category,
+      note: result.note,
+      transactionDate: result.transactionDate,
+    });
+
+    ctx.session.pendingTransaction = null;
+  } catch (error) {
+    console.error("❌ AI transaction parsing error:", error);
+    await replyWithFlowMarkup(messages.naturalTransaction.parseFailed);
+  }
+}
+
 async function replyWithActiveFlowWarning(
   ctx: BotContext,
   language: SupportedLanguage
@@ -209,7 +314,8 @@ async function replyWithActiveFlowWarning(
 export function registerTransactionFlowCommand(
   bot: Bot<BotContext>,
   transactionService: TransactionService,
-  userService: UserService
+  userService: UserService,
+  aiTransactionParser: AiTransactionParserService
 ): void {
   bot.hears(getMainMenuButtonTexts("addIncome"), async (ctx) => {
     await startTransactionFlow(ctx, "income", userService);
@@ -231,11 +337,69 @@ export function registerTransactionFlowCommand(
     await cancelTransactionFlow(ctx, userService);
   });
 
+  bot.callbackQuery(
+    [scopeConfirmationCallbacks.personal, scopeConfirmationCallbacks.family],
+    async (ctx) => {
+      await ctx.answerCallbackQuery();
+
+      const telegramUser = ctx.from;
+
+      if (!telegramUser) {
+        await ctx.reply(getMessages().common.readUserError);
+        return;
+      }
+
+      const language = await userService.getUserLanguage(telegramUser.id);
+      const messages = getMessages(language);
+      const awaitingScopeConfirmation = ctx.session.awaitingScopeConfirmation;
+
+      if (!awaitingScopeConfirmation) {
+        await ctx.reply(messages.naturalTransaction.noScopeSession);
+        return;
+      }
+
+      const scope: TransactionScope =
+        ctx.callbackQuery.data === scopeConfirmationCallbacks.personal
+          ? "personal"
+          : "family";
+
+      try {
+        await saveParsedTransaction(ctx, transactionService, userService, {
+          ...awaitingScopeConfirmation,
+          scope,
+        });
+        ctx.session.awaitingScopeConfirmation = null;
+      } catch (error) {
+        console.error("❌ Scope confirmation save error:", error);
+        await ctx.reply(messages.common.unexpectedError, {
+          reply_markup: createMainMenuKeyboard(language),
+        });
+      }
+    }
+  );
+
   bot.on("message:text", async (ctx, next) => {
     const pendingTransaction = ctx.session.pendingTransaction;
+    const text = ctx.message.text.trim();
 
     if (!pendingTransaction) {
-      await next();
+      if (
+        isCommandText(text) ||
+        isMainMenuButtonText(text) ||
+        isCancelFlowButtonText(text) ||
+        isShortcutTransactionText(text)
+      ) {
+        await next();
+        return;
+      }
+
+      await parseAndHandleNaturalTransaction(
+        ctx,
+        text,
+        aiTransactionParser,
+        transactionService,
+        userService
+      );
       return;
     }
 
@@ -248,9 +412,6 @@ export function registerTransactionFlowCommand(
     }
 
     const language = await userService.getUserLanguage(telegramUser.id);
-    const currency = await userService.getUserCurrency(telegramUser.id);
-    const messages = getMessages(language);
-    const text = ctx.message.text.trim();
 
     if (text === "/cancel" || isCancelFlowButtonText(text)) {
       await cancelTransactionFlow(ctx, userService);
@@ -262,42 +423,14 @@ export function registerTransactionFlowCommand(
       return;
     }
 
-    const parsedTransaction = parseTransactionLine(text);
-
-    if (!parsedTransaction) {
-      await ctx.reply(messages.transactionFlow.invalidAmount, {
-        reply_markup: createCancelFlowKeyboard(language),
-      });
-      return;
-    }
-
-    try {
-      const transaction = await transactionService.addTransaction({
-        telegramId: telegramUser.id,
-        type: pendingTransaction.type,
-        ...(pendingTransaction.scope ? { scope: pendingTransaction.scope } : {}),
-        amount: parsedTransaction.amount,
-        category: parsedTransaction.category,
-        ...(parsedTransaction.note ? { note: parsedTransaction.note } : {}),
-        ...(parsedTransaction.transactionDate
-          ? { transactionDate: parsedTransaction.transactionDate }
-          : {}),
-      });
-
-      ctx.session.pendingTransaction = null;
-
-      await ctx.reply(formatCreatedTransaction(transaction, language, currency), {
-        reply_markup: createMainMenuKeyboard(language),
-      });
-    } catch (error) {
-      ctx.session.pendingTransaction = null;
-
-      const message =
-        error instanceof Error ? error.message : messages.common.unexpectedError;
-
-      await ctx.reply(`❌ ${message}`, {
-        reply_markup: createMainMenuKeyboard(language),
-      });
-    }
+    await parseAndHandleNaturalTransaction(
+      ctx,
+      text,
+      aiTransactionParser,
+      transactionService,
+      userService,
+      pendingTransaction.type,
+      pendingTransaction.scope
+    );
   });
 }

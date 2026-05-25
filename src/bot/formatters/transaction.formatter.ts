@@ -63,20 +63,31 @@ export function formatCreatedTransaction(
 ): string {
   const messages = getMessages(language);
 
-  const label =
+  const typeLabel =
     transaction.type === "income"
       ? messages.transaction.income
       : messages.transaction.expense;
+  const scopeText =
+    transaction.type === "expense" && transaction.scope
+      ? `\n${messages.transaction.scope}: ${
+          transaction.scope === "personal"
+            ? messages.transaction.personalScope
+            : messages.transaction.familyScope
+        }`
+      : "";
 
   const noteText = transaction.note
-    ? `\n📝 ${messages.transaction.note}: ${transaction.note}`
+    ? `\n${messages.transaction.note}: ${transaction.note}`
     : "";
 
   return (
-    ` ${messages.transaction.createdSuccessfully(label)}\n\n` +
-    `💰 ${formatAmount(transaction.amount, currency)}\n` +
-    `🏷 ${transaction.category}\n` +
-    `📅 ${formatDate(transaction.transactionDate)}` +
+    `${messages.naturalTransaction.saved}\n` +
+    `${messages.transaction.type}: ${typeLabel}` +
+    scopeText +
+    "\n" +
+    `${messages.transaction.amount}: ${formatAmount(transaction.amount, currency)}\n` +
+    `${messages.transaction.category}: ${transaction.category}\n` +
+    `${messages.transaction.date}: ${formatDate(transaction.transactionDate)}` +
     noteText
   );
 }

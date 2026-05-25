@@ -2,6 +2,7 @@ import { model, Schema, Types } from "mongoose";
 
 export type TransactionType = "income" | "expense";
 export type TransactionScope = "personal" | "family";
+export type TransactionSource = "manual" | "receipt";
 
 export interface TransactionDocument {
   _id: Types.ObjectId;
@@ -11,6 +12,7 @@ export interface TransactionDocument {
   amount: number;
   category: string;
   note?: string;
+  source?: TransactionSource;
   transactionDate: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -49,6 +51,13 @@ const transactionSchema = new Schema<TransactionDocument>(
     note: {
       type: String,
       trim: true,
+    },
+    source: {
+      type: String,
+      enum: ["manual", "receipt"],
+      required: false,
+      default: "manual",
+      index: true,
     },
     transactionDate: {
       type: Date,

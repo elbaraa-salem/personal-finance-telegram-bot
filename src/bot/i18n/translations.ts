@@ -39,8 +39,15 @@ type ReportMessages = {
 };
 
 type TransactionMessages = {
+  type: string;
   income: string;
   expense: string;
+  scope: string;
+  personalScope: string;
+  familyScope: string;
+  amount: string;
+  category: string;
+  date: string;
   note: string;
   createdSuccessfully: (type: string) => string;
 };
@@ -94,6 +101,15 @@ type ManualTransactionMessages = {
   unexpectedError: string;
 };
 
+type NaturalTransactionMessages = {
+  aiNotConfigured: string;
+  parseFailed: string;
+  notDetected: string;
+  askScope: string;
+  saved: string;
+  noScopeSession: string;
+};
+
 type CommonMessages = {
   readUserError: string;
   unexpectedError: string;
@@ -126,6 +142,7 @@ type Messages = {
   transaction: TransactionMessages;
   history: HistoryMessages;
   transactionFlow: TransactionFlowMessages;
+  naturalTransaction: NaturalTransactionMessages;
   delete: DeleteMessages;
   manualTransaction: ManualTransactionMessages;
   currency: CurrencyMessages;
@@ -183,8 +200,15 @@ export const translations: Record<SupportedLanguage, Messages> = {
         noItems: "لا توجد عمليات.",
     },
     transaction: {
+        type: "النوع",
         income: "دخل",
         expense: "مصروف",
+        scope: "النطاق",
+        personalScope: "شخصي",
+        familyScope: "أسري",
+        amount: "المبلغ",
+        category: "التصنيف",
+        date: "التاريخ",
         note: "ملاحظة",
         createdSuccessfully: (type: string) => `✅ تم إضافة ${type} بنجاح`,
         },
@@ -207,11 +231,8 @@ export const translations: Record<SupportedLanguage, Messages> = {
     transactionFlow: {
         start: (type: string) =>
             `حسنًا، سنضيف ${type}.\n\n` +
-            "اكتب العملية في سطر واحد، مثال:\n" +
-            "1500 راتب\n\n" +
-            "اختياريًا يمكنك إضافة التاريخ والملاحظة:\n" +
-            "1500 التصنيف السنة-الشهر-اليوم  الملاحظة \n\n" +
-            "صيغة التاريخ: YYYY-MM-DD",
+            "اكتب العملية بطريقة طبيعية، مثال:\n" +
+            "اشتريت لحمة للبيت قبل يومين بألفين روبل",
 
         askCategory: "",
         askDate: "",
@@ -241,6 +262,15 @@ export const translations: Record<SupportedLanguage, Messages> = {
         dataError: "حدث خطأ في بيانات العملية. ابدأ من جديد.",
         readUserError: "لم أستطع قراءة بيانات المستخدم.",
         cancelButton: "❌ إلغاء العملية",
+    },
+    naturalTransaction: {
+        aiNotConfigured: "AI parsing is not configured yet.",
+        parseFailed: "حدث خطأ أثناء تحليل الرسالة. حاول مرة أخرى بعد قليل.",
+        notDetected:
+            "لم أستطع استخراج عملية مالية من هذه الرسالة. اكتب مثلًا: اشتريت طعامًا للبيت بـ 500 روبل",
+        askScope: "هل هذه العملية شخصية أم أسرية؟",
+        saved: "✅ تم تسجيل العملية:",
+        noScopeSession: "لا توجد عملية بانتظار تحديد النطاق.",
     },
     delete: {
         confirmation: "هل أنت متأكد أنك تريد حذف آخر عملية؟",
@@ -391,8 +421,15 @@ export const translations: Record<SupportedLanguage, Messages> = {
     },
 
     transaction: {
+        type: "Тип",
         income: "Доход",
         expense: "Расход",
+        scope: "Область",
+        personalScope: "личная",
+        familyScope: "семейная",
+        amount: "Сумма",
+        category: "Категория",
+        date: "Дата",
         note: "Примечание",
         createdSuccessfully: (type: string) => `✅ ${type} успешно добавлен`,
         },
@@ -416,10 +453,8 @@ export const translations: Record<SupportedLanguage, Messages> = {
     transactionFlow: {
         start: (type: string) =>
             `Хорошо, добавим ${type}.\n\n` +
-            "Введите операцию одной строкой, например:\n" +
-            "1500 зарплата\n\n" +
-            "Дополнительно можно указать дату и примечание:\n" +
-            "1500 категория YYYY-MM-DD примечание\n",
+            "Опишите операцию обычным текстом, например:\n" +
+            "Купил мясо домой два дня назад за 2000 рублей",
 
         askCategory: "",
         askDate: "",
@@ -449,6 +484,15 @@ export const translations: Record<SupportedLanguage, Messages> = {
         dataError: "Произошла ошибка в данных операции. Начните заново.",
         readUserError: "Не удалось прочитать данные пользователя.",
         cancelButton: "❌ Отмена",
+    },
+    naturalTransaction: {
+        aiNotConfigured: "AI parsing is not configured yet.",
+        parseFailed: "Не удалось разобрать сообщение. Попробуйте ещё раз чуть позже.",
+        notDetected:
+            "Я не смог распознать финансовую операцию в этом сообщении. Например: купил продукты домой за 500 рублей",
+        askScope: "Эта операция личная или семейная?",
+        saved: "✅ Операция сохранена:",
+        noScopeSession: "Нет операции, ожидающей выбора области.",
     },
 
     delete: {
@@ -598,8 +642,15 @@ export const translations: Record<SupportedLanguage, Messages> = {
         noItems: "No transactions.",
     },
     transaction: {
+        type: "Type",
         income: "Income",
         expense: "Expense",
+        scope: "Scope",
+        personalScope: "personal",
+        familyScope: "family",
+        amount: "Amount",
+        category: "Category",
+        date: "Date",
         note: "Note",
         createdSuccessfully: (type: string) => `✅ ${type} added successfully`,
         },
@@ -623,10 +674,8 @@ export const translations: Record<SupportedLanguage, Messages> = {
     transactionFlow: {
         start: (type: string) =>
             `Okay, let's add ${type}.\n\n` +
-            "Write the transaction in one line, for example:\n" +
-            "1500 salary\n\n" +
-            "Optionally, you can add a date and note:\n" +
-            "1500 salary YYYY-MM-DD bonus\n",
+            "Write the transaction naturally, for example:\n" +
+            "Bought groceries for home two days ago for 2000 rubles",
 
         askCategory: "",
         askDate: "",
@@ -656,6 +705,15 @@ export const translations: Record<SupportedLanguage, Messages> = {
         dataError: "There was an error in the transaction data. Please start again.",
         readUserError: "Could not read user data.",
         cancelButton: "❌ Cancel",
+    },
+    naturalTransaction: {
+        aiNotConfigured: "AI parsing is not configured yet.",
+        parseFailed: "I could not parse that message right now. Please try again shortly.",
+        notDetected:
+            "I could not detect a financial transaction in this message. For example: bought groceries for home for 500 rubles",
+        askScope: "Is this transaction personal or family?",
+        saved: "✅ Transaction saved:",
+        noScopeSession: "There is no transaction waiting for scope confirmation.",
     },
     delete: {
         confirmation: "Are you sure you want to delete the last transaction?",
