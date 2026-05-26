@@ -20,6 +20,11 @@ import { registerReceiptImportCommand } from "./bot/commands/receipt-import.comm
 import { GeminiReceiptExtractor } from "./infrastructure/ai/receipt-extractor";
 import { config } from "./config/env";
 import { AiTransactionParserService } from "./application/services/ai-transaction-parser.service";
+import { ReceiptImportRepository } from "./infrastructure/repositories/receipt-import.repository";
+import { ProverkachekaClient } from "./infrastructure/receipt/proverkacheka.client";
+import { ReceiptNormalizerService } from "./application/services/receipt-normalizer.service";
+import { AiReceiptParserService } from "./application/services/ai-receipt-parser.service";
+import { ReceiptImportService } from "./application/services/receipt-import.service";
 
 async function main(): Promise<void> {
   await connectToDatabase();
@@ -49,21 +54,38 @@ async function main(): Promise<void> {
     ? new GeminiReceiptExtractor(config.geminiApiKey, config.geminiModel)
     : null;
   const aiTransactionParser = new AiTransactionParserService();
+  const receiptImportRepository = new ReceiptImportRepository();
+  const proverkachekaClient =
+    config.receiptProvider === "proverkacheka" && config.proverkachekaToken
+      ? new ProverkachekaClient(
+          config.proverkachekaBaseUrl,
+          config.proverkachekaToken
+        )
+      : null;
+  const receiptImportService = new ReceiptImportService(
+    userRepository,
+    receiptImportRepository,
+    transactionService,
+    proverkachekaClient,
+    new ReceiptNormalizerService(),
+    new AiReceiptParserService()
+  );
 
   registerStartCommand(bot, userService);
   registerLanguageCommand(bot, userService);
   registerCurrencyCommand(bot, userService);
+  registerTransactionFlowCommand(
+    bot,
+    transactionService,
+    userService,
+    aiTransactionParser,
+    receiptImportService
+  );
   registerReceiptImportCommand(
     bot,
     receiptExtractor,
     transactionService,
     userService
-  );
-  registerTransactionFlowCommand(
-    bot,
-    transactionService,
-    userService,
-    aiTransactionParser
   );
   
   registerHelpCommand(bot, userService);

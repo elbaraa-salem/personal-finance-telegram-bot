@@ -1,5 +1,6 @@
 import { Bot } from "grammy";
 import { AiTransactionParserService } from "../../application/services/ai-transaction-parser.service";
+import { ReceiptImportService } from "../../application/services/receipt-import.service";
 import { TransactionService } from "../../application/services/transaction.service";
 import { config } from "../../config/env";
 import { TransactionScope, TransactionType } from "../../infrastructure/database/models/transaction.model";
@@ -22,6 +23,10 @@ import {
   createScopeConfirmationKeyboard,
   scopeConfirmationCallbacks,
 } from "../keyboards/scope-confirmation.keyboard";
+import { createReceiptQrConfirmationKeyboard } from "../keyboards/receipt-import.keyboard";
+import { formatReceiptImportPreview } from "../formatters/receipt-import.formatter";
+import { decodeReceiptQrFromImageBuffer } from "../../infrastructure/receipt/receipt-qr-image-decoder";
+import { downloadTelegramFileAsBuffer } from "../utils/download-telegram-file";
 
 function parseDate(text: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
@@ -142,6 +147,10 @@ function isShortcutTransactionText(text: string): boolean {
   return trimmedText.startsWith("+") || trimmedText.startsWith("-");
 }
 
+function looksLikeReceiptQrRaw(text: string): boolean {
+  return ["fn=", "fp=", "i=", "t=", "s=", "n="].every((field) => text.includes(field));
+}
+
 function getCurrentDateInTimezone(timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
@@ -158,6 +167,86 @@ function getCurrentDateInTimezone(timezone: string): string {
   }
 
   return `${year}-${month}-${day}`;
+}
+
+function getReceiptImportErrorMessage(error: unknown, language: SupportedLanguage): string {
+  const messages = getMessages(language);
+  const errorMessage = error instanceof Error ? error.message : String(error);
+
+  if (errorMessage.includes("AI receipt parsing is not configured")) {
+    return messages.receipt.receiptAiNotConfigured;
+  }
+
+  if (errorMessage.includes("no items") || errorMessage.includes("No receipt items")) {
+    return messages.receipt.receiptNoItems;
+  }
+
+  return messages.receipt.receiptCouldNotImport;
+}
+
+async function handleReceiptQrRawText(
+  ctx: BotContext,
+  text: string,
+  receiptImportService: ReceiptImportService,
+  userService: UserService
+): Promise<void> {
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    await ctx.reply(getMessages().common.readUserError);
+    return;
+  }
+
+  const language = await userService.getUserLanguage(telegramUser.id);
+  const currency = await userService.getUserCurrency(telegramUser.id);
+
+  try {
+    const preview = await receiptImportService.importReceiptByQrRaw(
+      telegramUser.id,
+      text,
+      language,
+      currency
+    );
+
+    await ctx.reply(formatReceiptImportPreview(preview, language, currency), {
+      reply_markup: createReceiptQrConfirmationKeyboard(
+        preview.receiptImport._id.toString(),
+        language
+      ),
+    });
+  } catch (error) {
+    console.error("❌ Receipt QR import error:", error);
+    await ctx.reply(getReceiptImportErrorMessage(error, language));
+  }
+}
+
+async function handleReceiptQrImageFile(
+  ctx: BotContext,
+  fileId: string,
+  receiptImportService: ReceiptImportService,
+  userService: UserService
+): Promise<void> {
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    await ctx.reply(getMessages().common.readUserError);
+    return;
+  }
+
+  const language = await userService.getUserLanguage(telegramUser.id);
+  const messages = getMessages(language);
+
+  await ctx.reply(messages.receipt.qrImageProcessing);
+
+  try {
+    const imageBuffer = await downloadTelegramFileAsBuffer(ctx, fileId);
+    const qrRaw = await decodeReceiptQrFromImageBuffer(imageBuffer);
+
+    await handleReceiptQrRawText(ctx, qrRaw, receiptImportService, userService);
+  } catch (error) {
+    console.error("❌ Receipt QR image decode error:", error);
+    await ctx.reply(messages.receipt.qrImageDecodeFailed);
+  }
 }
 
 function parseIsoDateToUtcDate(text: string): Date | null {
@@ -315,7 +404,8 @@ export function registerTransactionFlowCommand(
   bot: Bot<BotContext>,
   transactionService: TransactionService,
   userService: UserService,
-  aiTransactionParser: AiTransactionParserService
+  aiTransactionParser: AiTransactionParserService,
+  receiptImportService: ReceiptImportService
 ): void {
   bot.hears(getMainMenuButtonTexts("addIncome"), async (ctx) => {
     await startTransactionFlow(ctx, "income", userService);
@@ -378,6 +468,149 @@ export function registerTransactionFlowCommand(
     }
   );
 
+  bot.callbackQuery(/^receipt_confirm:([a-f\d]{24})$/i, async (ctx) => {
+    await ctx.answerCallbackQuery();
+
+    const telegramUser = ctx.from;
+
+    if (!telegramUser) {
+      await ctx.reply(getMessages().common.readUserError);
+      return;
+    }
+
+    const language = await userService.getUserLanguage(telegramUser.id);
+    const messages = getMessages(language);
+    const receiptImportId = ctx.callbackQuery.data.split(":")[1];
+
+    if (!receiptImportId) {
+      await ctx.reply(messages.receipt.receiptCouldNotImport);
+      return;
+    }
+
+    try {
+      const result = await receiptImportService.confirmReceiptImport(
+        telegramUser.id,
+        receiptImportId
+      );
+      const text =
+        result.status === "already_confirmed"
+          ? messages.receipt.receiptAlreadySaved
+          : `${messages.receipt.receiptSaved}\n${result.transactions.length}`;
+
+      await ctx.editMessageText(text).catch(async () => {
+        await ctx.reply(text, {
+          reply_markup: createMainMenuKeyboard(language),
+        });
+      });
+    } catch (error) {
+      console.error("❌ Receipt confirmation error:", error);
+      await ctx.reply(messages.common.unexpectedError, {
+        reply_markup: createMainMenuKeyboard(language),
+      });
+    }
+  });
+
+  bot.callbackQuery(/^receipt_cancel:([a-f\d]{24})$/i, async (ctx) => {
+    await ctx.answerCallbackQuery();
+
+    const telegramUser = ctx.from;
+
+    if (!telegramUser) {
+      await ctx.reply(getMessages().common.readUserError);
+      return;
+    }
+
+    const language = await userService.getUserLanguage(telegramUser.id);
+    const messages = getMessages(language);
+    const receiptImportId = ctx.callbackQuery.data.split(":")[1];
+
+    if (!receiptImportId) {
+      await ctx.reply(messages.receipt.receiptCouldNotImport);
+      return;
+    }
+
+    try {
+      await receiptImportService.cancelReceiptImport(telegramUser.id, receiptImportId);
+      await ctx.editMessageText(messages.receipt.receiptCancelled).catch(async () => {
+        await ctx.reply(messages.receipt.receiptCancelled, {
+          reply_markup: createMainMenuKeyboard(language),
+        });
+      });
+    } catch (error) {
+      console.error("❌ Receipt cancellation error:", error);
+      await ctx.reply(messages.common.unexpectedError, {
+        reply_markup: createMainMenuKeyboard(language),
+      });
+    }
+  });
+
+  bot.on("message:photo", async (ctx) => {
+    const pendingTransaction = ctx.session.pendingTransaction;
+    const telegramUser = ctx.from;
+
+    if (!telegramUser) {
+      await ctx.reply(getMessages().common.readUserError);
+      return;
+    }
+
+    const language = await userService.getUserLanguage(telegramUser.id);
+
+    if (pendingTransaction) {
+      await replyWithActiveFlowWarning(ctx, language);
+      return;
+    }
+
+    const photo = ctx.message.photo.at(-1);
+
+    if (!photo) {
+      await ctx.reply(getMessages(language).receipt.qrImageDecodeFailed);
+      return;
+    }
+
+    await handleReceiptQrImageFile(
+      ctx,
+      photo.file_id,
+      receiptImportService,
+      userService
+    );
+  });
+
+  bot.on("message:document", async (ctx, next) => {
+    const document = ctx.message.document;
+    const mimeType = document.mime_type ?? "";
+
+    if (!mimeType.startsWith("image/")) {
+      await next();
+      return;
+    }
+
+    const telegramUser = ctx.from;
+
+    if (!telegramUser) {
+      await ctx.reply(getMessages().common.readUserError);
+      return;
+    }
+
+    const language = await userService.getUserLanguage(telegramUser.id);
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType)) {
+      await ctx.reply(getMessages(language).receipt.qrImageUnsupportedFile);
+      return;
+    }
+
+    if (ctx.session.pendingTransaction) {
+      await replyWithActiveFlowWarning(ctx, language);
+      return;
+    }
+
+    await handleReceiptQrImageFile(
+      ctx,
+      document.file_id,
+      receiptImportService,
+      userService
+    );
+  });
+
   bot.on("message:text", async (ctx, next) => {
     const pendingTransaction = ctx.session.pendingTransaction;
     const text = ctx.message.text.trim();
@@ -390,6 +623,11 @@ export function registerTransactionFlowCommand(
         isShortcutTransactionText(text)
       ) {
         await next();
+        return;
+      }
+
+      if (looksLikeReceiptQrRaw(text)) {
+        await handleReceiptQrRawText(ctx, text, receiptImportService, userService);
         return;
       }
 

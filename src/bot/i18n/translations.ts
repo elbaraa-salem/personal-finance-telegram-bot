@@ -117,6 +117,26 @@ type NaturalTransactionMessages = {
   noScopeSession: string;
 };
 
+type ReceiptMessages = {
+  receiptFound: string;
+  receiptDate: string;
+  receiptTotal: string;
+  receiptTransactionsToCreate: string;
+  receiptSaveQuestion: string;
+  receiptSaveButton: string;
+  receiptCancelButton: string;
+  receiptSaved: string;
+  receiptAlreadySaved: string;
+  receiptCancelled: string;
+  receiptCouldNotImport: string;
+  receiptAiNotConfigured: string;
+  receiptNoItems: string;
+  groupedTotalDiffers: string;
+  qrImageProcessing: string;
+  qrImageDecodeFailed: string;
+  qrImageUnsupportedFile: string;
+};
+
 type CommonMessages = {
   readUserError: string;
   unexpectedError: string;
@@ -150,6 +170,7 @@ type Messages = {
   history: HistoryMessages;
   transactionFlow: TransactionFlowMessages;
   naturalTransaction: NaturalTransactionMessages;
+  receipt: ReceiptMessages;
   delete: DeleteMessages;
   manualTransaction: ManualTransactionMessages;
   currency: CurrencyMessages;
@@ -285,6 +306,25 @@ export const translations: Record<SupportedLanguage, Messages> = {
         askScope: "هل هذه العملية شخصية أم أسرية؟",
         saved: "✅ تم تسجيل العملية:",
         noScopeSession: "لا توجد عملية بانتظار تحديد النطاق.",
+    },
+    receipt: {
+        receiptFound: "🧾 تم العثور على شيك",
+        receiptDate: "التاريخ",
+        receiptTotal: "الإجمالي",
+        receiptTransactionsToCreate: "سيتم إنشاء العمليات",
+        receiptSaveQuestion: "هل تريد حفظ العمليات؟",
+        receiptSaveButton: "✅ احفظ",
+        receiptCancelButton: "❌ إلغاء",
+        receiptSaved: "✅ تم حفظ عمليات الشيك.",
+        receiptAlreadySaved: "تم حفظ هذا الشيك من قبل.",
+        receiptCancelled: "تم إلغاء استيراد الشيك.",
+        receiptCouldNotImport: "لم أستطع استيراد هذا الشيك. حاول مرة أخرى لاحقًا.",
+        receiptAiNotConfigured: "تحليل الشيك بالذكاء الاصطناعي غير مفعّل.",
+        receiptNoItems: "لم أجد عناصر في الشيك.",
+        groupedTotalDiffers: "⚠️ إجمالي المجموعات يختلف عن إجمالي الشيك.",
+        qrImageProcessing: "جاري قراءة QR من الصورة...",
+        qrImageDecodeFailed: "لم أستطع قراءة كود QR من الصورة. حاول تصوير الكود بشكل أوضح أو أرسل نص QR.",
+        qrImageUnsupportedFile: "هذا الملف ليس صورة مدعومة.",
     },
     delete: {
         confirmation: "هل أنت متأكد أنك تريد حذف آخر عملية؟",
@@ -515,6 +555,25 @@ export const translations: Record<SupportedLanguage, Messages> = {
         saved: "✅ Операция сохранена:",
         noScopeSession: "Нет операции, ожидающей выбора области.",
     },
+    receipt: {
+        receiptFound: "🧾 Чек найден",
+        receiptDate: "Дата",
+        receiptTotal: "Итого",
+        receiptTransactionsToCreate: "Будут созданы операции",
+        receiptSaveQuestion: "Сохранить операции?",
+        receiptSaveButton: "✅ Сохранить",
+        receiptCancelButton: "❌ Отменить",
+        receiptSaved: "✅ Операции из чека сохранены.",
+        receiptAlreadySaved: "Этот чек уже был сохранён.",
+        receiptCancelled: "Импорт чека отменён.",
+        receiptCouldNotImport: "Не удалось импортировать этот чек. Попробуйте позже.",
+        receiptAiNotConfigured: "AI-группировка чека не настроена.",
+        receiptNoItems: "В чеке не найдены позиции.",
+        groupedTotalDiffers: "⚠️ Сумма групп отличается от итога чека.",
+        qrImageProcessing: "Читаю QR-код с изображения...",
+        qrImageDecodeFailed: "Не удалось прочитать QR-код на фото. Попробуйте сфотографировать QR-код крупнее и чётче или отправьте текст QR.",
+        qrImageUnsupportedFile: "Этот файл не является поддерживаемым изображением.",
+    },
 
     delete: {
         confirmation: "Вы уверены, что хотите удалить последнюю операцию?",
@@ -742,6 +801,25 @@ export const translations: Record<SupportedLanguage, Messages> = {
         askScope: "Is this transaction personal or family?",
         saved: "✅ Transaction saved:",
         noScopeSession: "There is no transaction waiting for scope confirmation.",
+    },
+    receipt: {
+        receiptFound: "🧾 Receipt found",
+        receiptDate: "Date",
+        receiptTotal: "Total",
+        receiptTransactionsToCreate: "Transactions to create",
+        receiptSaveQuestion: "Save transactions?",
+        receiptSaveButton: "✅ Save",
+        receiptCancelButton: "❌ Cancel",
+        receiptSaved: "✅ Receipt transactions saved.",
+        receiptAlreadySaved: "This receipt was already saved.",
+        receiptCancelled: "Receipt import cancelled.",
+        receiptCouldNotImport: "I could not import this receipt. Please try again later.",
+        receiptAiNotConfigured: "Receipt AI grouping is not configured.",
+        receiptNoItems: "No receipt items were found.",
+        groupedTotalDiffers: "⚠️ The grouped total differs from receipt total.",
+        qrImageProcessing: "Reading QR code from the image...",
+        qrImageDecodeFailed: "I could not read a QR code from the image. Try taking a clearer photo of the QR code or send the QR text.",
+        qrImageUnsupportedFile: "This file is not a supported image.",
     },
     delete: {
         confirmation: "Are you sure you want to delete the last transaction?",

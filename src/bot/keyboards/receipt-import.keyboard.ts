@@ -1,5 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import { SupportedLanguage } from "../i18n/language";
+import { getMessages } from "../i18n/translations";
 
 export const receiptImportCallbacks = {
   scopePersonal: "receipt_scope_personal",
@@ -28,4 +29,15 @@ export function createReceiptConfirmationKeyboard(language: SupportedLanguage): 
     .row()
     .text(editText, receiptImportCallbacks.edit)
     .text(cancelText, receiptImportCallbacks.cancel);
+}
+
+export function createReceiptQrConfirmationKeyboard(
+  receiptImportId: string,
+  language: SupportedLanguage
+): InlineKeyboard {
+  const messages = getMessages(language);
+
+  return new InlineKeyboard()
+    .text(messages.receipt.receiptSaveButton, `receipt_confirm:${receiptImportId}`)
+    .text(messages.receipt.receiptCancelButton, `receipt_cancel:${receiptImportId}`);
 }

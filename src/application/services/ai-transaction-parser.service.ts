@@ -37,7 +37,7 @@ type ParseOptions = {
   forcedScope?: TransactionScope;
 };
 
-interface AiTextProvider {
+export interface AiTextProvider {
   complete(prompt: string): Promise<string>;
 }
 
@@ -49,7 +49,7 @@ type OpenRouterResponse = {
   }>;
 };
 
-class OpenRouterTextProvider implements AiTextProvider {
+export class OpenRouterTextProvider implements AiTextProvider {
   constructor(
     private readonly apiKey: string,
     private readonly model: string,
@@ -101,7 +101,7 @@ class OpenRouterTextProvider implements AiTextProvider {
   }
 }
 
-function extractJson(text: string): string {
+export function extractJson(text: string): string {
   const trimmedText = text.trim();
 
   if (trimmedText.startsWith("```")) {
