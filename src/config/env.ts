@@ -26,6 +26,9 @@ export const config = {
   aiBaseUrl: process.env.AI_BASE_URL ?? "https://openrouter.ai/api/v1",
   geminiApiKey: process.env.GEMINI_API_KEY,
   geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+  receiptProvider: process.env.RECEIPT_PROVIDER,
+  proverkachekaToken: process.env.PROVERKACHEKA_TOKEN,
+  proverkachekaBaseUrl: process.env.PROVERKACHEKA_BASE_URL ?? "https://proverkacheka.com/api/v1",
 };
 
 if (config.useProxy && !config.socksProxyUrl) {

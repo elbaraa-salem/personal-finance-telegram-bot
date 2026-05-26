@@ -6,7 +6,8 @@
   "scripts": {
     "test": "npm run build",
     "dev": "ts-node src/index.ts",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "test:receipt": "ts-node src/scripts/test-proverkacheka.ts"
   },
   "keywords": [],
   "author": "",
