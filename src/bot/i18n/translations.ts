@@ -135,6 +135,7 @@ type ReceiptMessages = {
   qrImageProcessing: string;
   qrImageDecodeFailed: string;
   qrImageUnsupportedFile: string;
+  receiptExpenseOnly: string;
 };
 
 type CommonMessages = {
@@ -325,6 +326,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         qrImageProcessing: "جاري قراءة QR من الصورة...",
         qrImageDecodeFailed: "لم أستطع قراءة كود QR من الصورة. حاول تصوير الكود بشكل أوضح أو أرسل نص QR.",
         qrImageUnsupportedFile: "هذا الملف ليس صورة مدعومة.",
+        receiptExpenseOnly: "الشيكات مدعومة للمصروفات فقط. ألغِ وضع الدخل أو اختر نوع مصروف.",
     },
     delete: {
         confirmation: "هل أنت متأكد أنك تريد حذف آخر عملية؟",
@@ -573,6 +575,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         qrImageProcessing: "Читаю QR-код с изображения...",
         qrImageDecodeFailed: "Не удалось прочитать QR-код на фото. Попробуйте сфотографировать QR-код крупнее и чётче или отправьте текст QR.",
         qrImageUnsupportedFile: "Этот файл не является поддерживаемым изображением.",
+        receiptExpenseOnly: "Чеки поддерживаются только для расходов. Отмените режим дохода или выберите тип расхода.",
     },
 
     delete: {
@@ -820,6 +823,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         qrImageProcessing: "Reading QR code from the image...",
         qrImageDecodeFailed: "I could not read a QR code from the image. Try taking a clearer photo of the QR code or send the QR text.",
         qrImageUnsupportedFile: "This file is not a supported image.",
+        receiptExpenseOnly: "Receipts are supported only for expenses. Please cancel income mode or choose an expense type.",
     },
     delete: {
         confirmation: "Are you sure you want to delete the last transaction?",

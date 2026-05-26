@@ -30,6 +30,7 @@ type ParseOptions = {
   language: string;
   defaultCurrency: string;
   defaultScope?: TransactionScope;
+  forcedScope?: TransactionScope;
 };
 
 function optionalString(value: unknown): string | undefined {
@@ -115,7 +116,9 @@ function validateReceiptParseResult(value: unknown): AiReceiptParseResult {
 }
 
 function createPrompt(receipt: NormalizedReceipt, options: ParseOptions): string {
-  const defaultScopeText = options.defaultScope
+  const scopeText = options.forcedScope
+    ? `The user selected expense scope "${options.forcedScope}". This scope is final and must not be changed. Group items only by category and amount.`
+    : options.defaultScope
     ? `Default expense scope selected by the user: ${options.defaultScope}. Prefer it unless item names clearly suggest another scope.`
     : "No default expense scope was selected.";
   const sellerName = receipt.seller.retailPlace ?? receipt.seller.name ?? "";
@@ -132,7 +135,7 @@ Return JSON only. No markdown. No explanation.
 
 User UI language: ${options.language}
 Default currency: ${options.defaultCurrency}
-${defaultScopeText}
+${scopeText}
 Receipt seller: ${sellerName}
 Receipt date: ${receipt.fiscal.dateTime.toISOString()}
 Receipt total: ${receipt.fiscal.totalSum}

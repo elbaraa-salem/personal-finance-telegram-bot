@@ -10,7 +10,10 @@ import {
 import { TransactionService } from "./transaction.service";
 import { ProverkachekaClient } from "../../infrastructure/receipt/proverkacheka.client";
 import { ReceiptImportDocument } from "../../infrastructure/database/models/receipt-import.model";
-import { TransactionDocument } from "../../infrastructure/database/models/transaction.model";
+import {
+  TransactionDocument,
+  TransactionScope,
+} from "../../infrastructure/database/models/transaction.model";
 import { ReceiptImportRepository } from "../../infrastructure/repositories/receipt-import.repository";
 import { UserRepository } from "../../infrastructure/repositories/user.repository";
 
@@ -31,6 +34,10 @@ export type ConfirmReceiptImportResult =
       transactions: TransactionDocument[];
     };
 
+type ImportReceiptOptions = {
+  forcedScope?: TransactionScope;
+};
+
 export class ReceiptImportService {
   constructor(
     private readonly userRepository: UserRepository,
@@ -45,7 +52,8 @@ export class ReceiptImportService {
     telegramId: number,
     qrRaw: string,
     language: string,
-    defaultCurrency: string
+    defaultCurrency: string,
+    options: ImportReceiptOptions = {}
   ): Promise<ReceiptImportPreview> {
     const user = await this.userRepository.findByTelegramId(telegramId);
 
@@ -77,6 +85,7 @@ export class ReceiptImportService {
       const aiResult = await this.aiReceiptParser.parse(normalizedReceipt, {
         language,
         defaultCurrency,
+        ...(options.forcedScope ? { forcedScope: options.forcedScope } : {}),
       });
 
       if (aiResult.status === "cannot_group") {
@@ -84,9 +93,14 @@ export class ReceiptImportService {
         throw new Error(aiResult.reason);
       }
 
+      const finalTransactions = aiResult.transactions.map((transaction) => ({
+        ...transaction,
+        ...(options.forcedScope ? { scope: options.forcedScope } : {}),
+      }));
+
       const updatedReceiptImport = await this.receiptImportRepository.setAiTransactions(
         receiptImport._id,
-        aiResult.transactions
+        finalTransactions
       );
 
       if (!updatedReceiptImport) {
@@ -96,10 +110,10 @@ export class ReceiptImportService {
       return {
         receiptImport: updatedReceiptImport,
         normalizedReceipt,
-        aiTransactions: aiResult.transactions,
+        aiTransactions: finalTransactions,
         groupedTotalDiffers: this.groupedTotalDiffers(
           normalizedReceipt.fiscal.totalSum,
-          aiResult.transactions
+          finalTransactions
         ),
       };
     } catch (error) {

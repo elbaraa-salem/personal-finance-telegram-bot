@@ -15,6 +15,7 @@ import {
   createReceiptScopeKeyboard,
   receiptImportCallbacks,
 } from "../keyboards/receipt-import.keyboard";
+import { createMainMenuKeyboard } from "../keyboards/main-menu.keyboard";
 
 function getMessage(language: SupportedLanguage, key: string): string {
   const messages: Record<SupportedLanguage, Record<string, string>> = {
@@ -211,7 +212,9 @@ async function saveReceiptTransactions(
 
   if (!telegramUser || !pendingReceiptImport?.scope) {
     const language = await getLanguage(ctx, userService);
-    await ctx.reply(getMessage(language, "noSession"));
+    await ctx.reply(getMessage(language, "noSession"), {
+      reply_markup: createMainMenuKeyboard(language),
+    });
     return;
   }
 
@@ -233,9 +236,13 @@ async function saveReceiptTransactions(
   );
 
   ctx.session.pendingReceiptImport = null;
+  ctx.session.pendingTransaction = null;
+  ctx.session.awaitingScopeConfirmation = null;
 
   const language = await userService.getUserLanguage(telegramUser.id);
-  await ctx.reply(`${getMessage(language, "saved")}\n${receipt.items.length} × ${currency}`);
+  await ctx.reply(`${getMessage(language, "saved")}\n${receipt.items.length} × ${currency}`, {
+    reply_markup: createMainMenuKeyboard(language),
+  });
 }
 
 export function registerReceiptImportCommand(
@@ -280,7 +287,9 @@ export function registerReceiptImportCommand(
     } catch (error) {
       console.error("❌ Receipt import error:", error);
       ctx.session.pendingReceiptImport = null;
-      await ctx.reply(getMessage(language, "failed"));
+      await ctx.reply(getMessage(language, "failed"), {
+        reply_markup: createMainMenuKeyboard(language),
+      });
     }
   });
 
@@ -293,7 +302,9 @@ export function registerReceiptImportCommand(
       const pendingReceiptImport = ctx.session.pendingReceiptImport;
 
       if (!pendingReceiptImport) {
-        await ctx.reply(getMessage(language, "noSession"));
+        await ctx.reply(getMessage(language, "noSession"), {
+          reply_markup: createMainMenuKeyboard(language),
+        });
         return;
       }
 
@@ -329,7 +340,9 @@ export function registerReceiptImportCommand(
     const pendingReceiptImport = ctx.session.pendingReceiptImport;
 
     if (!pendingReceiptImport) {
-      await ctx.reply(getMessage(language, "noSession"));
+      await ctx.reply(getMessage(language, "noSession"), {
+        reply_markup: createMainMenuKeyboard(language),
+      });
       return;
     }
 
@@ -341,7 +354,11 @@ export function registerReceiptImportCommand(
 
     const language = await getLanguage(ctx, userService);
     ctx.session.pendingReceiptImport = null;
-    await ctx.reply(getMessage(language, "cancelled"));
+    ctx.session.pendingTransaction = null;
+    ctx.session.awaitingScopeConfirmation = null;
+    await ctx.reply(getMessage(language, "cancelled"), {
+      reply_markup: createMainMenuKeyboard(language),
+    });
   });
 
   bot.on("message:text", async (ctx, next) => {

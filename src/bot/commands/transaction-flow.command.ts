@@ -188,7 +188,11 @@ async function handleReceiptQrRawText(
   ctx: BotContext,
   text: string,
   receiptImportService: ReceiptImportService,
-  userService: UserService
+  userService: UserService,
+  options: {
+    forcedScope?: TransactionScope;
+    clearPendingTransactionOnSuccess?: boolean;
+  } = {}
 ): Promise<void> {
   const telegramUser = ctx.from;
 
@@ -205,7 +209,8 @@ async function handleReceiptQrRawText(
       telegramUser.id,
       text,
       language,
-      currency
+      currency,
+      options.forcedScope ? { forcedScope: options.forcedScope } : {}
     );
 
     await ctx.reply(formatReceiptImportPreview(preview, language, currency), {
@@ -214,17 +219,47 @@ async function handleReceiptQrRawText(
         language
       ),
     });
+
   } catch (error) {
     console.error("❌ Receipt QR import error:", error);
-    await ctx.reply(getReceiptImportErrorMessage(error, language));
+    const errorMessage = getReceiptImportErrorMessage(error, language);
+
+    if (ctx.session.pendingTransaction) {
+      await ctx.reply(errorMessage);
+    } else {
+      await ctx.reply(errorMessage, {
+        reply_markup: createMainMenuKeyboard(language),
+      });
+    }
+    return;
   }
+
+  if (options.clearPendingTransactionOnSuccess) {
+    ctx.session.pendingTransaction = null;
+    ctx.session.awaitingScopeConfirmation = null;
+  }
+}
+
+async function replyCallbackResultWithMainMenu(
+  ctx: BotContext,
+  text: string,
+  language: SupportedLanguage
+): Promise<void> {
+  await ctx.editMessageReplyMarkup().catch(() => undefined);
+  await ctx.reply(text, {
+    reply_markup: createMainMenuKeyboard(language),
+  });
 }
 
 async function handleReceiptQrImageFile(
   ctx: BotContext,
   fileId: string,
   receiptImportService: ReceiptImportService,
-  userService: UserService
+  userService: UserService,
+  options: {
+    forcedScope?: TransactionScope;
+    clearPendingTransactionOnSuccess?: boolean;
+  } = {}
 ): Promise<void> {
   const telegramUser = ctx.from;
 
@@ -236,17 +271,32 @@ async function handleReceiptQrImageFile(
   const language = await userService.getUserLanguage(telegramUser.id);
   const messages = getMessages(language);
 
-  await ctx.reply(messages.receipt.qrImageProcessing);
+  if (options.clearPendingTransactionOnSuccess) {
+    await ctx.reply(messages.receipt.qrImageProcessing, {
+      reply_markup: createMainMenuKeyboard(language),
+    });
+  } else {
+    await ctx.reply(messages.receipt.qrImageProcessing);
+  }
+
+  let qrRaw: string;
 
   try {
     const imageBuffer = await downloadTelegramFileAsBuffer(ctx, fileId);
-    const qrRaw = await decodeReceiptQrFromImageBuffer(imageBuffer);
-
-    await handleReceiptQrRawText(ctx, qrRaw, receiptImportService, userService);
+    qrRaw = await decodeReceiptQrFromImageBuffer(imageBuffer);
   } catch (error) {
     console.error("❌ Receipt QR image decode error:", error);
-    await ctx.reply(messages.receipt.qrImageDecodeFailed);
+    if (ctx.session.pendingTransaction) {
+      await ctx.reply(messages.receipt.qrImageDecodeFailed);
+    } else {
+      await ctx.reply(messages.receipt.qrImageDecodeFailed, {
+        reply_markup: createMainMenuKeyboard(language),
+      });
+    }
+    return;
   }
+
+  await handleReceiptQrRawText(ctx, qrRaw, receiptImportService, userService, options);
 }
 
 function parseIsoDateToUtcDate(text: string): Date | null {
@@ -497,13 +547,16 @@ export function registerTransactionFlowCommand(
           ? messages.receipt.receiptAlreadySaved
           : `${messages.receipt.receiptSaved}\n${result.transactions.length}`;
 
-      await ctx.editMessageText(text).catch(async () => {
-        await ctx.reply(text, {
-          reply_markup: createMainMenuKeyboard(language),
-        });
-      });
+      ctx.session.pendingTransaction = null;
+      ctx.session.pendingReceiptImport = null;
+      ctx.session.awaitingScopeConfirmation = null;
+
+      await replyCallbackResultWithMainMenu(ctx, text, language);
     } catch (error) {
       console.error("❌ Receipt confirmation error:", error);
+      ctx.session.pendingTransaction = null;
+      ctx.session.pendingReceiptImport = null;
+      ctx.session.awaitingScopeConfirmation = null;
       await ctx.reply(messages.common.unexpectedError, {
         reply_markup: createMainMenuKeyboard(language),
       });
@@ -531,13 +584,19 @@ export function registerTransactionFlowCommand(
 
     try {
       await receiptImportService.cancelReceiptImport(telegramUser.id, receiptImportId);
-      await ctx.editMessageText(messages.receipt.receiptCancelled).catch(async () => {
-        await ctx.reply(messages.receipt.receiptCancelled, {
-          reply_markup: createMainMenuKeyboard(language),
-        });
-      });
+      ctx.session.pendingTransaction = null;
+      ctx.session.pendingReceiptImport = null;
+      ctx.session.awaitingScopeConfirmation = null;
+      await replyCallbackResultWithMainMenu(
+        ctx,
+        messages.receipt.receiptCancelled,
+        language
+      );
     } catch (error) {
       console.error("❌ Receipt cancellation error:", error);
+      ctx.session.pendingTransaction = null;
+      ctx.session.pendingReceiptImport = null;
+      ctx.session.awaitingScopeConfirmation = null;
       await ctx.reply(messages.common.unexpectedError, {
         reply_markup: createMainMenuKeyboard(language),
       });
@@ -555,8 +614,10 @@ export function registerTransactionFlowCommand(
 
     const language = await userService.getUserLanguage(telegramUser.id);
 
-    if (pendingTransaction) {
-      await replyWithActiveFlowWarning(ctx, language);
+    if (pendingTransaction?.type === "income") {
+      await ctx.reply(getMessages(language).receipt.receiptExpenseOnly, {
+        reply_markup: createCancelFlowKeyboard(language),
+      });
       return;
     }
 
@@ -571,7 +632,11 @@ export function registerTransactionFlowCommand(
       ctx,
       photo.file_id,
       receiptImportService,
-      userService
+      userService,
+      {
+        ...(pendingTransaction?.scope ? { forcedScope: pendingTransaction.scope } : {}),
+        clearPendingTransactionOnSuccess: pendingTransaction?.type === "expense",
+      }
     );
   });
 
@@ -598,8 +663,12 @@ export function registerTransactionFlowCommand(
       return;
     }
 
-    if (ctx.session.pendingTransaction) {
-      await replyWithActiveFlowWarning(ctx, language);
+    const pendingTransaction = ctx.session.pendingTransaction;
+
+    if (pendingTransaction?.type === "income") {
+      await ctx.reply(getMessages(language).receipt.receiptExpenseOnly, {
+        reply_markup: createCancelFlowKeyboard(language),
+      });
       return;
     }
 
@@ -607,7 +676,11 @@ export function registerTransactionFlowCommand(
       ctx,
       document.file_id,
       receiptImportService,
-      userService
+      userService,
+      {
+        ...(pendingTransaction?.scope ? { forcedScope: pendingTransaction.scope } : {}),
+        clearPendingTransactionOnSuccess: pendingTransaction?.type === "expense",
+      }
     );
   });
 
@@ -650,6 +723,21 @@ export function registerTransactionFlowCommand(
     }
 
     const language = await userService.getUserLanguage(telegramUser.id);
+
+    if (looksLikeReceiptQrRaw(text)) {
+      if (pendingTransaction.type === "income") {
+        await ctx.reply(getMessages(language).receipt.receiptExpenseOnly, {
+          reply_markup: createCancelFlowKeyboard(language),
+        });
+        return;
+      }
+
+      await handleReceiptQrRawText(ctx, text, receiptImportService, userService, {
+        ...(pendingTransaction.scope ? { forcedScope: pendingTransaction.scope } : {}),
+        clearPendingTransactionOnSuccess: true,
+      });
+      return;
+    }
 
     if (text === "/cancel" || isCancelFlowButtonText(text)) {
       await cancelTransactionFlow(ctx, userService);
