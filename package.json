@@ -7,7 +7,9 @@
     "test": "npm run build",
     "dev": "ts-node src/index.ts",
     "build": "tsc --noEmit",
-    "test:receipt": "ts-node src/scripts/test-proverkacheka.ts"
+    "test:receipt": "ts-node src/scripts/test-proverkacheka.ts",
+    "fix:dates:dry": "ts-node src/scripts/fix-transaction-dates-from-text.ts --dry-run",
+    "fix:dates:apply": "ts-node src/scripts/fix-transaction-dates-from-text.ts --apply"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +18,7 @@
   "dependencies": {
     "@google/genai": "^1.52.0",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "grammy": "^1.42.0",
     "jsqr": "^1.4.0",
     "mongoose": "^9.6.1",

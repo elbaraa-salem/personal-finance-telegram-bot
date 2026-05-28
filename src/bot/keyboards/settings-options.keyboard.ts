@@ -6,6 +6,7 @@ export const settingsOptionCallbacks = {
   language: "settings:language",
   currency: "settings:currency",
   expenseScopeMode: "settings:expense_scope_mode",
+  timezone: "settings:timezone",
 } as const;
 
 export function createSettingsOptionsKeyboard(
@@ -17,5 +18,7 @@ export function createSettingsOptionsKeyboard(
     .text(menu.language, settingsOptionCallbacks.language)
     .text(menu.currency, settingsOptionCallbacks.currency)
     .row()
-    .text(menu.expenseModeSettingsButton, settingsOptionCallbacks.expenseScopeMode);
+    .text(menu.expenseModeSettingsButton, settingsOptionCallbacks.expenseScopeMode)
+    .row()
+    .text(menu.timezoneSettings, settingsOptionCallbacks.timezone);
 }

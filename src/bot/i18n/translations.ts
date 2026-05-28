@@ -19,6 +19,7 @@ export type MenuMessages = {
   language: string;
   currency: string;
   expenseModeSettingsButton: string;
+  timezoneSettings: string;
   moreReports: string;
   settings: string;
 };
@@ -40,6 +41,15 @@ type ReportMessages = {
   familyExpenseSection: string;
   total: string;
   noItems: string;
+  customRangeButton: string;
+  customRangeFromQuestion: string;
+  customRangeToQuestion: string;
+  invalidDate: string;
+  endDateBeforeStartDate: string;
+  customTitle: (from: string, to: string) => string;
+  excelButton: string;
+  excelPreparing: string;
+  excelNoTransactions: string;
 };
 
 type TransactionMessages = {
@@ -172,6 +182,11 @@ type ExpenseScopeModeMessages = {
   fixedBySettings: string;
 };
 
+type TimezoneMessages = {
+  choose: string;
+  updated: (timezone: string) => string;
+};
+
 type Messages = {
   common: CommonMessages;
   start: {
@@ -197,6 +212,7 @@ type Messages = {
   manualTransaction: ManualTransactionMessages;
   currency: CurrencyMessages;
   expenseScopeMode: ExpenseScopeModeMessages;
+  timezone: TimezoneMessages;
 };
 
 export const translations: Record<SupportedLanguage, Messages> = {
@@ -240,6 +256,10 @@ export const translations: Record<SupportedLanguage, Messages> = {
         updated: "تم تحديث طريقة تسجيل المصروفات.",
         fixedBySettings: "نوع المصروفات ثابت من الإعدادات.",
     },
+    timezone: {
+        choose: "اختر المنطقة الزمنية:",
+        updated: (timezone: string) => `تم تحديث المنطقة الزمنية: ${timezone}`,
+    },
     report: {
         titles: {
             all: "📊 التقرير الكامل",
@@ -257,6 +277,15 @@ export const translations: Record<SupportedLanguage, Messages> = {
         familyExpenseSection: "🏠 المصروفات الأسرية:",
         total: "الإجمالي",
         noItems: "لا توجد عمليات.",
+        customRangeButton: "📅 اختيار يدوي",
+        customRangeFromQuestion: "من أي تاريخ؟ اكتب التاريخ بهذا الشكل: 22-05-2026",
+        customRangeToQuestion: "إلى أي تاريخ؟ اكتب التاريخ بهذا الشكل: 29-05-2026",
+        invalidDate: "التاريخ غير صحيح. اكتب التاريخ بهذا الشكل: 22-05-2026",
+        endDateBeforeStartDate: "تاريخ النهاية يجب أن يكون بعد تاريخ البداية أو مساويًا له.",
+        customTitle: (from: string, to: string) => `📊 تقرير من ${from} إلى ${to}:`,
+        excelButton: "📊 أريد ملف Excel",
+        excelPreparing: "جاري تجهيز ملف Excel...",
+        excelNoTransactions: "لا توجد عمليات في هذه الفترة.",
     },
     transaction: {
         type: "النوع",
@@ -411,37 +440,77 @@ export const translations: Record<SupportedLanguage, Messages> = {
     help: {
     text: (currency: string) =>
             `
-        👋 أهلاً بك في SmartSpendBot
+        👋 مرحبًا بك في SmartSpendBot
 
-        💰 إضافة سريعة:
-        + 1500 salary
-        - 250 food
-        + 1500 salary 2026-05-05 bonus
-        - 250 food 2026-05-05 lunch
+        يساعدك SmartSpendBot على تسجيل الدخل والمصروفات، ومتابعة التقارير، ومراجعة التاريخ، وتصدير التقارير إلى ملف Excel.
+
+        💬 الإضافة السريعة بالنص:
+        يمكنك أن تكتب العملية بلغة عادية، وسيحاول البوت فهم المبلغ، ونوع العملية، والتصنيف، والتاريخ، والملاحظة.
+
+        أمثلة:
+        + 1500 عمل
+        - 250 طعام
+        استلمت 3000 من درس مع ماريا 17-05-2026
+        ярче продукты 2026-05-01 1233
+        vpn 141 16-05-2026
+
+        📅 التواريخ:
+        يمكنك كتابة التاريخ بهذه الصيغ:
+        17-05-2026
+        17.05.2026
+        17/05/2026
+        2026-05-17
+        2026.05.17
+        2026/05/17
+
+        إذا لم تكتب التاريخ، سيستخدم البوت تاريخ اليوم.
+
+        💰 الإدخال اليدوي:
+        من زر "الإدخال اليدوي" يمكنك إضافة:
+        • دخل
+        • مصروف شخصي
+        • مصروف أسري
+
+        إذا اخترت في الإعدادات وضع المصروفات الشخصية فقط أو الأسرية فقط، فلن يسألك البوت كل مرة عن نوع المصروف.
+
+        🧾 الشيكات و QR:
+        يمكنك إرسال QR الخاص بالشيك كنص أو كصورة.
+        سيحاول البوت قراءة الشيك، وتجميع المشتريات، وعرض معاينة قبل الحفظ.
+        لن يتم حفظ العمليات إلا بعد تأكيدك.
 
         📊 التقارير:
-        /report — التقرير الكامل
-        /report_day — تقرير اليوم
-        /report_week — تقرير الأسبوع
-        /report_month — تقرير الشهر
-        /report_year — تقرير السنة
+        يمكنك عرض:
+        • تقرير اليوم
+        • تقارير الشهور
+        • تقرير لفترة تختارها يدويًا
 
-        🧾 السجل:
-        /history — آخر 5 عمليات
-        /history 10 — آخر 10 عمليات
-        /history 2026-05-04 — عمليات يوم محدد
+        في "تقارير أخرى" يعرض البوت الشهور التي تحتوي على عمليات، مع زر لاختيار فترة يدوية.
+
+        📊 Excel:
+        تحت كل تقرير يوجد زر "أريد ملف Excel".
+        الملف يحتوي على عمليات نفس الشهر أو نفس الفترة:
+        • التاريخ
+        • النوع
+        • شخصي/أسري
+        • المبلغ
+        • التصنيف
+        • الملاحظة
+        • تاريخ الإنشاء
+
+        🧾 التاريخ:
+        يعرض التاريخ الشهور التي تحتوي على عمليات.
+        بعد اختيار شهر، يعرض البوت العمليات الخاصة بهذا الشهر.
+
+        🗑 الحذف:
+        يمكنك حذف آخر عملية بعد التأكيد.
+        إذا كانت آخر عملية جزءًا من شيك، فسيحذف البوت كل عمليات هذا الشيك معًا.
 
         ⚙️ الإعدادات:
-        /language — تغيير اللغة
-        /currency — تغيير العملة
-        /delete_last — حذف آخر عملية بعد التأكيد
+        يمكنك تغيير:
+        • اللغة
+        • العملة
+        • وضع المصروفات: فصل الشخصي والأسري / شخصي فقط / أسري فقط
 
-        📝 الصيغة:
-        + المبلغ التصنيف التاريخ الملاحظة
-        - المبلغ التصنيف التاريخ الملاحظة
-
-        التاريخ والملاحظة اختياريان.
-        صيغة التاريخ: YYYY-MM-DD
         العملة الحالية: ${currency}
         `.trim(),
     },
@@ -464,6 +533,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
       language: "🌐 اللغة / Language",
       currency: "💱 العملة",
       expenseModeSettingsButton: "👥 نوع المصروفات",
+      timezoneSettings: "🌍 المنطقة الزمنية",
       moreReports: "📊 تقارير أخرى",
       settings: "⚙️ الإعدادات",
     },
@@ -509,6 +579,10 @@ export const translations: Record<SupportedLanguage, Messages> = {
         updated: "Способ учёта расходов обновлён.",
         fixedBySettings: "Тип расходов закреплён в настройках.",
     },
+    timezone: {
+        choose: "Выберите часовой пояс:",
+        updated: (timezone: string) => `Часовой пояс обновлён: ${timezone}`,
+    },
     report: {
         titles: {
             all: "📊 Общий отчёт",
@@ -526,6 +600,15 @@ export const translations: Record<SupportedLanguage, Messages> = {
         familyExpenseSection: "🏠 Семейные расходы:",
         total: "Итого",
         noItems: "Нет операций.",
+        customRangeButton: "📅 Выбрать период",
+        customRangeFromQuestion: "С какой даты? Напишите дату в формате: 22-05-2026",
+        customRangeToQuestion: "До какой даты? Напишите дату в формате: 29-05-2026",
+        invalidDate: "Неверная дата. Напишите дату в формате: 22-05-2026",
+        endDateBeforeStartDate: "Дата окончания должна быть не раньше даты начала.",
+        customTitle: (from: string, to: string) => `📊 Отчёт с ${from} по ${to}:`,
+        excelButton: "📊 Скачать Excel",
+        excelPreparing: "Готовлю Excel-файл...",
+        excelNoTransactions: "Нет операций за этот период.",
     },
 
     transaction: {
@@ -684,35 +767,74 @@ export const translations: Record<SupportedLanguage, Messages> = {
         `
         👋 Добро пожаловать в SmartSpendBot
 
-        💰 Быстрое добавление:
-        + 1500 salary
-        - 250 food
-        + 1500 salary 2026-05-05 bonus
-        - 250 food 2026-05-05 lunch
+        SmartSpendBot помогает вести учёт доходов и расходов, смотреть отчёты, историю операций и экспортировать отчёты в Excel.
+
+        💬 Быстрое добавление текстом:
+        Можно писать обычным текстом, бот сам попробует понять сумму, тип операции, категорию, дату и заметку.
+
+        Примеры:
+        + 1500 работа
+        - 250 еда
+        получил 3000 за урок с Марией 17-05-2026
+        ярче продукты 2026-05-01 1233
+        впн 141 16-05-2026
+
+        📅 Даты:
+        Можно писать дату в формате:
+        17-05-2026
+        17.05.2026
+        17/05/2026
+        2026-05-17
+        2026.05.17
+        2026/05/17
+
+        Если дата не указана, бот использует сегодняшний день.
+
+        💰 Ручной ввод:
+        Через меню "Ручной ввод" можно добавить:
+        • доход
+        • личный расход
+        • семейный расход
+
+        Если в настройках выбран режим только личных или только семейных расходов, бот не будет каждый раз спрашивать тип расхода.
+
+        🧾 Чеки и QR:
+        Можно отправить QR-код чека текстом или фотографией.
+        Бот попробует прочитать чек, сгруппировать покупки, показать предварительный просмотр и сохранить операции только после подтверждения.
 
         📊 Отчёты:
-        /report — общий отчёт
-        /report_day — отчёт за сегодня
-        /report_week — отчёт за неделю
-        /report_month — отчёт за месяц
-        /report_year — отчёт за год
+        Можно получить:
+        • отчёт за сегодня
+        • отчёты по месяцам
+        • отчёт за выбранный вручную период
+
+        В разделе "Другие отчёты" бот показывает месяцы, где есть операции, а также кнопку выбора периода вручную.
+
+        📊 Excel:
+        Под каждым отчётом есть кнопка "Скачать Excel".
+        Файл содержит операции за выбранный месяц или период:
+        • дата
+        • тип
+        • личный/семейный расход
+        • сумма
+        • категория
+        • заметка
+        • дата создания
 
         🧾 История:
-        /history — последние 5 операций
-        /history 10 — последние 10 операций
-        /history 2026-05-04 — операции за конкретный день
+        История показывает месяцы, в которых есть операции.
+        После выбора месяца бот покажет операции за этот месяц.
+
+        🗑 Удаление:
+        Можно удалить последнюю операцию после подтверждения.
+        Если последняя операция была создана из чека, бот удалит все операции этого чека вместе.
 
         ⚙️ Настройки:
-        /language — изменить язык
-        /currency — изменить валюту
-        /delete_last — удалить последнюю операцию после подтверждения
+        Можно изменить:
+        • язык
+        • валюту
+        • режим расходов: разделять личные и семейные / только личные / только семейные
 
-        📝 Формат:
-        + сумма категория дата заметка
-        - сумма категория дата заметка
-
-        Дата и заметка необязательны.
-        Формат даты: YYYY-MM-DD
         Текущая валюта: ${currency}
         `.trim(),
     },
@@ -735,6 +857,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
       language: "🌐 Язык / Language",
       currency: "💱 Валюта",
       expenseModeSettingsButton: "👥 Тип расходов",
+      timezoneSettings: "🌍 Часовой пояс",
       moreReports: "📊 Другие отчёты",
       settings: "⚙️ Настройки",
     },
@@ -780,6 +903,10 @@ export const translations: Record<SupportedLanguage, Messages> = {
         updated: "Expense mode updated.",
         fixedBySettings: "Expense scope is fixed by settings.",
     },
+    timezone: {
+        choose: "Choose timezone:",
+        updated: (timezone: string) => `Timezone updated: ${timezone}`,
+    },
     report: {
         titles: {
         all: "📊 Full report",
@@ -797,6 +924,15 @@ export const translations: Record<SupportedLanguage, Messages> = {
         familyExpenseSection: "🏠 Family expenses:",
         total: "Total",
         noItems: "No transactions.",
+        customRangeButton: "📅 Custom period",
+        customRangeFromQuestion: "From which date? Write the date like this: 22-05-2026",
+        customRangeToQuestion: "To which date? Write the date like this: 29-05-2026",
+        invalidDate: "Invalid date. Write the date like this: 22-05-2026",
+        endDateBeforeStartDate: "End date must be after or equal to start date.",
+        customTitle: (from: string, to: string) => `📊 Report from ${from} to ${to}:`,
+        excelButton: "📊 Download Excel",
+        excelPreparing: "Preparing Excel file...",
+        excelNoTransactions: "No transactions in this period.",
     },
     transaction: {
         type: "Type",
@@ -953,35 +1089,74 @@ export const translations: Record<SupportedLanguage, Messages> = {
             `
         👋 Welcome to SmartSpendBot
 
-        💰 Quick add:
-        + 1500 salary
+        SmartSpendBot helps you track income and expenses, view reports, review history, and export reports to Excel.
+
+        💬 Quick text entry:
+        You can write a transaction in normal text. The bot will try to understand the amount, type, category, date, and note.
+
+        Examples:
+        + 1500 work
         - 250 food
-        + 1500 salary 2026-05-05 bonus
-        - 250 food 2026-05-05 lunch
+        received 3000 for a lesson with Maria 17-05-2026
+        ярче продукты 2026-05-01 1233
+        vpn 141 16-05-2026
+
+        📅 Dates:
+        You can write dates in these formats:
+        17-05-2026
+        17.05.2026
+        17/05/2026
+        2026-05-17
+        2026.05.17
+        2026/05/17
+
+        If no date is provided, the bot uses today.
+
+        💰 Manual entry:
+        From "Manual entry" you can add:
+        • income
+        • personal expense
+        • family expense
+
+        If your settings use personal-only or family-only mode, the bot will not ask for the expense type every time.
+
+        🧾 Receipts and QR:
+        You can send a receipt QR code as text or as an image.
+        The bot will try to read the receipt, group items, show a preview, and save transactions only after your confirmation.
 
         📊 Reports:
-        /report — full report
-        /report_day — today's report
-        /report_week — this week's report
-        /report_month — this month's report
-        /report_year — this year's report
+        You can view:
+        • today's report
+        • monthly reports
+        • custom date range reports
+
+        In "More reports", the bot shows months that contain transactions and a custom period button.
+
+        📊 Excel:
+        Under every report there is a "Download Excel" button.
+        The file contains transactions for the same month or date range:
+        • date
+        • type
+        • personal/family scope
+        • amount
+        • category
+        • note
+        • created at
 
         🧾 History:
-        /history — last 5 transactions
-        /history 10 — last 10 transactions
-        /history 2026-05-04 — transactions for a specific day
+        History shows months that contain transactions.
+        After choosing a month, the bot shows transactions for that month.
+
+        🗑 Delete:
+        You can delete the last transaction after confirmation.
+        If the last transaction was created from a receipt, the bot deletes the whole receipt group together.
 
         ⚙️ Settings:
-        /language — change language
-        /currency — change currency
-        /delete_last — delete the last transaction after confirmation
+        You can change:
+        • language
+        • currency
+        • expense mode: separate personal/family / personal only / family only
 
-        📝 Format:
-        + amount category date note
-        - amount category date note
-
-        Date and note are optional.
-        Date format: YYYY-MM-DD
         Current currency: ${currency}
         `.trim(),
     },
@@ -1004,6 +1179,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
       language: "🌐 Language",
       currency: "💱 Currency",
       expenseModeSettingsButton: "👥 Expense mode",
+      timezoneSettings: "🌍 Timezone",
       moreReports: "📊 More reports",
       settings: "⚙️ Settings",
     },

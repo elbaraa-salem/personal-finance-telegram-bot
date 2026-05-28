@@ -4,6 +4,11 @@ import { SupportedLanguage } from "../i18n/language";
 import { getMessages } from "../i18n/translations";
 
 export type MonthSelectionCallbackPrefix = "report_month" | "history_month";
+type CreateMonthSelectionKeyboardOptions = {
+  includeCustomRange?: boolean;
+};
+
+export const reportCustomRangeCallback = "report_custom_range";
 
 function formatMonthButtonLabel(month: TransactionMonthItem): string {
   return `${month.year}-${String(month.month).padStart(2, "0")}`;
@@ -12,7 +17,8 @@ function formatMonthButtonLabel(month: TransactionMonthItem): string {
 export function createMonthSelectionKeyboard(
   months: TransactionMonthItem[],
   callbackPrefix: MonthSelectionCallbackPrefix,
-  _language: SupportedLanguage
+  language: SupportedLanguage,
+  options: CreateMonthSelectionKeyboardOptions = {}
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
 
@@ -29,6 +35,17 @@ export function createMonthSelectionKeyboard(
       keyboard.row();
     }
   });
+
+  if (options.includeCustomRange) {
+    if (months.length > 0 && months.length % 2 !== 0) {
+      keyboard.row();
+    }
+
+    keyboard.text(
+      getMessages(language).report.customRangeButton,
+      reportCustomRangeCallback
+    );
+  }
 
   return keyboard;
 }

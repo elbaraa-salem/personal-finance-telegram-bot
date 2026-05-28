@@ -1,8 +1,9 @@
-import { Bot, Context } from "grammy";
+import { Bot, Context, InputFile } from "grammy";
 import {
-  ReportPeriod,
+  StandardReportPeriod,
   ReportService,
 } from "../../application/services/report.service";
+import { ReportExcelExportService } from "../../application/services/report-excel-export.service";
 import { HistoryService } from "../../application/services/history.service";
 import { isValidYearMonth } from "../../application/services/month-date-range";
 import {
@@ -29,13 +30,19 @@ import {
 import {
   createHistoryPaginationKeyboard,
   createMonthSelectionKeyboard,
+  reportCustomRangeCallback,
 } from "../keyboards/month-selection.keyboard";
+import { createReportExcelKeyboard } from "../keyboards/report-excel.keyboard";
+import {
+  createTimezoneKeyboard,
+  isSupportedTimezone,
+} from "../keyboards/timezone.keyboard";
 
 async function replyWithReport(
   ctx: Context,
   reportService: ReportService,
   userService: UserService,
-  period: ReportPeriod
+  period: StandardReportPeriod
 ): Promise<void> {
   const telegramUser = ctx.from;
 
@@ -56,7 +63,17 @@ async function replyWithReport(
       period
     );
 
-    await ctx.reply(formatReport(report, language, currency));
+    await ctx.reply(formatReport(report, language, currency), {
+      ...(report.startDate && report.endDate
+        ? {
+            reply_markup: createReportExcelKeyboard(
+              language,
+              report.startDate,
+              report.endDate
+            ),
+          }
+        : {}),
+    });
   } catch (error) {
     const message =
         error instanceof Error ? error.message : messages.common.unexpectedError;
@@ -132,13 +149,13 @@ async function replyWithAvailableReportMonths(
   try {
     const months = await reportService.getAvailableReportMonths(telegramUser.id);
 
-    if (months.length === 0) {
-      await ctx.reply(messages.history.noTransactionsYet);
-      return;
-    }
-
     await ctx.reply(messages.history.chooseReportMonth, {
-      reply_markup: createMonthSelectionKeyboard(months, "report_month", language),
+      reply_markup: createMonthSelectionKeyboard(
+        months,
+        "report_month",
+        language,
+        { includeCustomRange: true }
+      ),
     });
   } catch (error) {
     const message =
@@ -207,7 +224,18 @@ async function replyWithMonthReport(
       return;
     }
 
-    await ctx.reply(formatReport(report, language, currency));
+    if (!report.startDate || !report.endDate) {
+      await ctx.reply(formatReport(report, language, currency));
+      return;
+    }
+
+    await ctx.reply(formatReport(report, language, currency), {
+      reply_markup: createReportExcelKeyboard(
+        language,
+        report.startDate,
+        report.endDate
+      ),
+    });
   } catch (error) {
     const message =
         error instanceof Error ? error.message : messages.common.unexpectedError;
@@ -284,11 +312,47 @@ async function replyWithMonthHistory(
   }
 }
 
+function parseCompactDate(text: string): Date | null {
+  const match = /^(\d{4})(\d{2})(\d{2})$/.exec(text);
+
+  if (!match?.[1] || !match[2] || !match[3]) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  const isValidDate =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+
+  return isValidDate ? date : null;
+}
+
+function formatCompactDate(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+
+  return `${year}${month}${day}`;
+}
+
+function createReportExcelFileName(startDate: Date, endDateExclusive: Date): string {
+  const endInclusive = new Date(endDateExclusive);
+  endInclusive.setUTCDate(endInclusive.getUTCDate() - 1);
+
+  return `finance-report-${formatCompactDate(startDate)}-${formatCompactDate(endInclusive)}.xlsx`;
+}
+
 export function registerMenuCommandHandlers(
   bot: Bot<BotContext>,
   reportService: ReportService,
   historyService: HistoryService,
-  userService: UserService
+  userService: UserService,
+  reportExcelExportService: ReportExcelExportService
 ): void {
 
   bot.hears(getMainMenuButtonTexts("history"), async (ctx) => {
@@ -354,6 +418,69 @@ export function registerMenuCommandHandlers(
       );
     });
 
+    bot.callbackQuery(reportCustomRangeCallback, async (ctx) => {
+      await ctx.answerCallbackQuery();
+
+      const telegramUser = ctx.from;
+
+      if (!telegramUser) {
+        await ctx.reply(getMessages().common.readUserError);
+        return;
+      }
+
+      const language = await userService.getUserLanguage(telegramUser.id);
+
+      ctx.session.pendingCustomReport = {
+        step: "from",
+      };
+
+      await ctx.reply(getMessages(language).report.customRangeFromQuestion);
+    });
+
+    bot.callbackQuery(/^report_excel:(\d{8}):(\d{8})$/, async (ctx) => {
+      const telegramUser = ctx.from;
+
+      if (!telegramUser) {
+        await ctx.answerCallbackQuery();
+        await ctx.reply(getMessages().common.readUserError);
+        return;
+      }
+
+      const language = await userService.getUserLanguage(telegramUser.id);
+      const messages = getMessages(language);
+      const startDate = parseCompactDate(ctx.match[1] ?? "");
+      const endDateExclusive = parseCompactDate(ctx.match[2] ?? "");
+
+      await ctx.answerCallbackQuery({
+        text: messages.report.excelPreparing,
+      });
+
+      if (
+        !startDate ||
+        !endDateExclusive ||
+        endDateExclusive.getTime() <= startDate.getTime()
+      ) {
+        await ctx.reply(messages.common.unexpectedError);
+        return;
+      }
+
+      try {
+        const buffer = await reportExcelExportService.generateReportBuffer(
+          telegramUser.id,
+          startDate,
+          endDateExclusive
+        );
+        const fileName = createReportExcelFileName(startDate, endDateExclusive);
+
+        await ctx.replyWithDocument(new InputFile(buffer, fileName));
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : messages.common.unexpectedError;
+
+        await ctx.reply(`❌ ${message}`);
+      }
+    });
+
     bot.callbackQuery(/^history_month:(\d{4}-\d{2}):(\d+)$/, async (ctx) => {
       await ctx.answerCallbackQuery();
 
@@ -412,6 +539,49 @@ export function registerMenuCommandHandlers(
 
         await ctx.reply(getMessages(language).expenseScopeMode.question, {
             reply_markup: createExpenseScopeModeKeyboard(language),
+        });
+    });
+
+    bot.callbackQuery(settingsOptionCallbacks.timezone, async (ctx) => {
+        await ctx.answerCallbackQuery();
+
+        const telegramUser = ctx.from;
+
+        if (!telegramUser) {
+            await ctx.reply(getMessages().common.readUserError);
+            return;
+        }
+
+        const language = await userService.getUserLanguage(telegramUser.id);
+
+        await ctx.reply(getMessages(language).timezone.choose, {
+            reply_markup: createTimezoneKeyboard(),
+        });
+    });
+
+    bot.callbackQuery(/^timezone:(.+)$/, async (ctx) => {
+        await ctx.answerCallbackQuery();
+
+        const telegramUser = ctx.from;
+
+        if (!telegramUser) {
+            await ctx.reply(getMessages().common.readUserError);
+            return;
+        }
+
+        const timezone = ctx.match[1] ?? "";
+        const language = await userService.getUserLanguage(telegramUser.id);
+        const messages = getMessages(language);
+
+        if (!isSupportedTimezone(timezone)) {
+            await ctx.reply(messages.common.unexpectedError);
+            return;
+        }
+
+        await userService.setUserTimezone(telegramUser.id, timezone);
+
+        await ctx.reply(messages.timezone.updated(timezone), {
+            reply_markup: createSettingsOptionsKeyboard(language),
         });
     });
 

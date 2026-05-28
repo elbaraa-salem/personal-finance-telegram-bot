@@ -210,6 +210,22 @@ export class TransactionRepository {
     .exec();
   }
 
+  async findAllByUserIdAndDateRange(
+    userId: Types.ObjectId,
+    startDate: Date,
+    endDate: Date
+  ): Promise<TransactionDocument[]> {
+    return TransactionModel.find({
+      userId,
+      transactionDate: {
+        $gte: startDate,
+        $lt: endDate,
+      },
+    })
+      .sort({ transactionDate: 1, createdAt: 1 })
+      .exec();
+  }
+
   async countByUserIdAndDateRange(
     userId: Types.ObjectId,
     startDate: Date,

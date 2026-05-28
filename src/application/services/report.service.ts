@@ -4,15 +4,24 @@ import {
   TransactionMonthItem,
   TransactionSummary,
 } from "../../infrastructure/repositories/transaction.repository";
+import {
+  TransactionDocument,
+  TransactionScope,
+  TransactionType,
+} from "../../infrastructure/database/models/transaction.model";
 import { UserRepository } from "../../infrastructure/repositories/user.repository";
 import { getMonthDateRange } from "./month-date-range";
+import { config } from "../../config/env";
+import { getCurrentDateRangeInTimezone } from "./timezone-date.service";
 
-export type ReportPeriod = "all" | "day" | "week" | "month" | "year";
+export type ReportPeriod = "all" | "day" | "week" | "month" | "year" | "custom";
+export type StandardReportPeriod = Exclude<ReportPeriod, "custom">;
 
 export type ReportResult = TransactionSummary & {
   period: ReportPeriod;
   startDate?: Date;
   endDate?: Date;
+  customPeriodLabel?: string;
   categorySummary: CategorySummaryItem[];
 };
 
@@ -20,6 +29,77 @@ type DateRange = {
   startDate: Date;
   endDate: Date;
 };
+
+function calculateTransactionSummary(
+  transactions: TransactionDocument[]
+): TransactionSummary {
+  const summary = transactions.reduce(
+    (result, transaction) => {
+      if (transaction.type === "income") {
+        result.totalIncome += transaction.amount;
+      } else if (transaction.type === "expense") {
+        result.totalExpense += transaction.amount;
+      }
+
+      return result;
+    },
+    {
+      totalIncome: 0,
+      totalExpense: 0,
+    }
+  );
+
+  return {
+    totalIncome: summary.totalIncome,
+    totalExpense: summary.totalExpense,
+    balance: summary.totalIncome - summary.totalExpense,
+    transactionCount: transactions.length,
+  };
+}
+
+function calculateCategorySummary(
+  transactions: TransactionDocument[]
+): CategorySummaryItem[] {
+  const totals = new Map<string, CategorySummaryItem>();
+
+  for (const transaction of transactions) {
+    const scope = transaction.type === "expense" ? transaction.scope : undefined;
+    const key = [
+      transaction.type,
+      scope ?? "",
+      transaction.category,
+    ].join("|");
+    const existing = totals.get(key);
+
+    if (existing) {
+      existing.total += transaction.amount;
+      continue;
+    }
+
+    totals.set(key, {
+      type: transaction.type as TransactionType,
+      ...(scope ? { scope: scope as TransactionScope } : {}),
+      category: transaction.category,
+      total: transaction.amount,
+    });
+  }
+
+  return [...totals.values()].sort((left, right) => {
+    const typeCompare = left.type.localeCompare(right.type);
+
+    if (typeCompare !== 0) {
+      return typeCompare;
+    }
+
+    const scopeCompare = (left.scope ?? "").localeCompare(right.scope ?? "");
+
+    if (scopeCompare !== 0) {
+      return scopeCompare;
+    }
+
+    return left.category.localeCompare(right.category);
+  });
+}
 
 export class ReportService {
   constructor(
@@ -39,7 +119,7 @@ export class ReportService {
 
   async getUserSummaryForPeriod(
     telegramId: number,
-    period: ReportPeriod
+    period: StandardReportPeriod
   ): Promise<ReportResult> {
     const user = await this.userRepository.findByTelegramId(telegramId);
 
@@ -61,15 +141,9 @@ export class ReportService {
       };
     }
 
-    const dateRange = this.getDateRange(period);
-    const summary =
-      await this.transactionRepository.getSummaryByUserIdAndDateRange(
-        user._id,
-        dateRange.startDate,
-        dateRange.endDate
-      );
-    const categorySummary =
-      await this.transactionRepository.getCategorySummaryByUserIdAndDateRange(
+    const dateRange = this.getDateRange(period, user.timezone ?? config.appTimezone);
+    const transactions =
+      await this.transactionRepository.findAllByUserIdAndDateRange(
         user._id,
         dateRange.startDate,
         dateRange.endDate
@@ -79,8 +153,8 @@ export class ReportService {
       period,
       startDate: dateRange.startDate,
       endDate: dateRange.endDate,
-      categorySummary,
-      ...summary,
+      categorySummary: calculateCategorySummary(transactions),
+      ...calculateTransactionSummary(transactions),
     };
   }
 
@@ -108,14 +182,8 @@ export class ReportService {
     }
 
     const dateRange = getMonthDateRange(year, month);
-    const summary =
-      await this.transactionRepository.getSummaryByUserIdAndDateRange(
-        user._id,
-        dateRange.startDate,
-        dateRange.endDate
-      );
-    const categorySummary =
-      await this.transactionRepository.getCategorySummaryByUserIdAndDateRange(
+    const transactions =
+      await this.transactionRepository.findAllByUserIdAndDateRange(
         user._id,
         dateRange.startDate,
         dateRange.endDate
@@ -125,68 +193,44 @@ export class ReportService {
       period: "month",
       startDate: dateRange.startDate,
       endDate: dateRange.endDate,
-      categorySummary,
-      ...summary,
+      categorySummary: calculateCategorySummary(transactions),
+      ...calculateTransactionSummary(transactions),
     };
   }
 
-  private getDateRange(period: Exclude<ReportPeriod, "all">): DateRange {
-    const now = new Date();
+  async getReportByDateRange(
+    telegramId: number,
+    startDate: Date,
+    endDate: Date,
+    customPeriodLabel?: string
+  ): Promise<ReportResult> {
+    const user = await this.userRepository.findByTelegramId(telegramId);
 
-    if (period === "day") {
-      const startDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate()
-      );
-
-      const endDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() + 1
-      );
-
-      return {
-        startDate,
-        endDate,
-      };
+    if (!user) {
+      throw new Error("User not found. Please send /start first.");
     }
 
-    if (period === "week") {
-      const dayOfWeek = now.getDay(); // Sunday = 0
-      const daysFromMonday = (dayOfWeek + 6) % 7;
-
-      const startDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() - daysFromMonday
+    const transactions =
+      await this.transactionRepository.findAllByUserIdAndDateRange(
+        user._id,
+        startDate,
+        endDate
       );
-
-      const endDate = new Date(startDate);
-      endDate.setDate(startDate.getDate() + 7);
-
-      return {
-        startDate,
-        endDate,
-      };
-    }
-
-    if (period === "month") {
-      const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-      return {
-        startDate,
-        endDate,
-      };
-    }
-
-    const startDate = new Date(now.getFullYear(), 0, 1);
-    const endDate = new Date(now.getFullYear() + 1, 0, 1);
 
     return {
+      period: "custom",
       startDate,
       endDate,
+      ...(customPeriodLabel ? { customPeriodLabel } : {}),
+      categorySummary: calculateCategorySummary(transactions),
+      ...calculateTransactionSummary(transactions),
     };
+  }
+
+  private getDateRange(
+    period: Exclude<ReportPeriod, "all" | "custom">,
+    timezone: string
+  ): DateRange {
+    return getCurrentDateRangeInTimezone(period, timezone);
   }
 }

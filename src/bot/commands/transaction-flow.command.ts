@@ -1,8 +1,9 @@
 import { Bot, GrammyError } from "grammy";
 import { AiTransactionParserService } from "../../application/services/ai-transaction-parser.service";
+import { ReportService } from "../../application/services/report.service";
+import { getCurrentDateStringInTimezone } from "../../application/services/timezone-date.service";
 import { ReceiptImportService } from "../../application/services/receipt-import.service";
 import { TransactionService } from "../../application/services/transaction.service";
-import { config } from "../../config/env";
 import { TransactionScope, TransactionType } from "../../infrastructure/database/models/transaction.model";
 import { ExpenseScopeMode } from "../../infrastructure/database/models/user.model";
 import { BotContext } from "../context";
@@ -26,7 +27,9 @@ import {
   scopeConfirmationCallbacks,
 } from "../keyboards/scope-confirmation.keyboard";
 import { createReceiptQrConfirmationKeyboard } from "../keyboards/receipt-import.keyboard";
+import { createReportExcelKeyboard } from "../keyboards/report-excel.keyboard";
 import { formatReceiptImportPreview } from "../formatters/receipt-import.formatter";
+import { formatReport } from "../formatters/report.formatter";
 import { decodeReceiptQrFromImageBuffer } from "../../infrastructure/receipt/receipt-qr-image-decoder";
 import { downloadTelegramFileAsBuffer } from "../utils/download-telegram-file";
 
@@ -105,6 +108,7 @@ async function startTransactionFlow(
   const modeScope = getForcedScopeFromUserMode(expenseScopeMode);
   const effectiveScope = type === "expense" ? modeScope ?? scope : undefined;
 
+  ctx.session.pendingCustomReport = null;
   ctx.session.pendingTransaction = {
     type,
     ...(effectiveScope ? { scope: effectiveScope } : {}),
@@ -176,24 +180,6 @@ function getForcedScopeFromUserMode(mode: ExpenseScopeMode): TransactionScope | 
   }
 
   return undefined;
-}
-
-function getCurrentDateInTimezone(timezone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const year = parts.find((part) => part.type === "year")?.value;
-  const month = parts.find((part) => part.type === "month")?.value;
-  const day = parts.find((part) => part.type === "day")?.value;
-
-  if (!year || !month || !day) {
-    return new Date().toISOString().slice(0, 10);
-  }
-
-  return `${year}-${month}-${day}`;
 }
 
 function getReceiptImportErrorMessage(error: unknown, language: SupportedLanguage): string {
@@ -449,11 +435,11 @@ async function parseAndHandleNaturalTransaction(
   }
 
   try {
-    const timezone = config.defaultTimezone;
+    const timezone = await userService.getUserTimezone(telegramUser.id);
     const result = await aiTransactionParser.parse(text, {
       language,
       timezone,
-      currentDate: getCurrentDateInTimezone(timezone),
+      currentDate: getCurrentDateStringInTimezone(timezone),
       ...(forcedType ? { forcedType } : {}),
       ...(effectiveForcedScope ? { forcedScope: effectiveForcedScope } : {}),
     });
@@ -513,12 +499,120 @@ async function replyWithActiveFlowWarning(
   });
 }
 
+function parseCustomReportDate(text: string): Date | null {
+  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(text.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  const dayText = match[1];
+  const monthText = match[2];
+  const yearText = match[3];
+
+  if (!dayText || !monthText || !yearText) {
+    return null;
+  }
+
+  const day = Number(dayText);
+  const month = Number(monthText);
+  const year = Number(yearText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  const isValidDate =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+
+  return isValidDate ? date : null;
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  return new Date(Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate() + days
+  ));
+}
+
+async function handleCustomReportDateInput(
+  ctx: BotContext,
+  text: string,
+  reportService: ReportService,
+  userService: UserService
+): Promise<void> {
+  const pendingCustomReport = ctx.session.pendingCustomReport;
+  const telegramUser = ctx.from;
+
+  if (!pendingCustomReport || !telegramUser) {
+    return;
+  }
+
+  const language = await userService.getUserLanguage(telegramUser.id);
+  const currency = await userService.getUserCurrency(telegramUser.id);
+  const messages = getMessages(language);
+
+  if (text === "/cancel" || isCancelFlowButtonText(text)) {
+    ctx.session.pendingCustomReport = null;
+    await ctx.reply(messages.transactionFlow.cancelled);
+    return;
+  }
+
+  const parsedDate = parseCustomReportDate(text);
+
+  if (!parsedDate) {
+    await ctx.reply(messages.report.invalidDate);
+    return;
+  }
+
+  if (pendingCustomReport.step === "from") {
+    ctx.session.pendingCustomReport = {
+      step: "to",
+      fromDate: text,
+    };
+
+    await ctx.reply(messages.report.customRangeToQuestion);
+    return;
+  }
+
+  const fromDateText = pendingCustomReport.fromDate;
+  const fromDate = fromDateText ? parseCustomReportDate(fromDateText) : null;
+
+  if (!fromDateText || !fromDate) {
+    ctx.session.pendingCustomReport = {
+      step: "from",
+    };
+    await ctx.reply(messages.report.customRangeFromQuestion);
+    return;
+  }
+
+  if (parsedDate.getTime() < fromDate.getTime()) {
+    await ctx.reply(messages.report.endDateBeforeStartDate);
+    return;
+  }
+
+  const endDateExclusive = addUtcDays(parsedDate, 1);
+  const report = await reportService.getReportByDateRange(
+    telegramUser.id,
+    fromDate,
+    endDateExclusive,
+    messages.report.customTitle(fromDateText, text)
+  );
+
+  ctx.session.pendingCustomReport = null;
+
+  await ctx.reply(formatReport(report, language, currency), {
+    reply_markup: createReportExcelKeyboard(language, fromDate, endDateExclusive),
+  });
+}
+
 export function registerTransactionFlowCommand(
   bot: Bot<BotContext>,
   transactionService: TransactionService,
   userService: UserService,
   aiTransactionParser: AiTransactionParserService,
-  receiptImportService: ReceiptImportService
+  receiptImportService: ReceiptImportService,
+  reportService: ReportService
 ): void {
   bot.hears(getMainMenuButtonTexts("addIncome"), async (ctx) => {
     await startTransactionFlow(ctx, "income", userService);
@@ -860,6 +954,17 @@ export function registerTransactionFlowCommand(
   bot.on("message:text", async (ctx, next) => {
     const pendingTransaction = ctx.session.pendingTransaction;
     const text = ctx.message.text.trim();
+
+    if (ctx.session.pendingCustomReport) {
+      try {
+        await handleCustomReportDateInput(ctx, text, reportService, userService);
+      } catch (error) {
+        console.error("❌ Custom report error:", error);
+        const language = await getLanguageForContext(ctx, userService);
+        await ctx.reply(getMessages(language).common.unexpectedError);
+      }
+      return;
+    }
 
     if (!pendingTransaction) {
       if (

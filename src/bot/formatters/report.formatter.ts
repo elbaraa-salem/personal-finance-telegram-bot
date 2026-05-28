@@ -14,6 +14,14 @@ function formatMonth(date: Date): string {
 function formatPeriodTitle(report: ReportResult, language: SupportedLanguage): string {
   const messages = getMessages(language);
 
+  if (report.period === "custom" && report.customPeriodLabel) {
+    return report.customPeriodLabel;
+  }
+
+  if (report.period === "custom") {
+    return messages.report.titles.all;
+  }
+
   if (report.period === "month" && report.startDate) {
     if (language === "ar") {
       return `📊 إحصائيات شهر ${formatMonth(report.startDate)}:`;

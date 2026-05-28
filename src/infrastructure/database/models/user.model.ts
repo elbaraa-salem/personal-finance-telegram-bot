@@ -13,6 +13,7 @@ export interface UserDocument {
   updatedAt: Date;
   language?: SupportedLanguage;
   currency?: string;
+  timezone?: string;
   expenseScopeMode: ExpenseScopeMode;
 }
 
@@ -33,6 +34,11 @@ const userSchema = new Schema<UserDocument>(
       required: false,
     },
     currency: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    timezone: {
       type: String,
       required: false,
       trim: true,

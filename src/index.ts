@@ -8,6 +8,7 @@ import { TransactionService } from "./application/services/transaction.service";
 import { registerTransactionCommands } from "./bot/commands/transaction.command";
 import { registerReportCommand } from "./bot/commands/report.command";
 import { ReportService } from "./application/services/report.service";
+import { ReportExcelExportService } from "./application/services/report-excel-export.service";
 import { registerHistoryCommand } from "./bot/commands/history.command";
 import { HistoryService } from "./application/services/history.service";
 import { registerDeleteLastCommand } from "./bot/commands/delete-last.command";
@@ -41,6 +42,10 @@ async function main(): Promise<void> {
   );
 
   const reportService = new ReportService(
+    transactionRepository,
+    userRepository
+  );
+  const reportExcelExportService = new ReportExcelExportService(
     transactionRepository,
     userRepository
   );
@@ -79,7 +84,8 @@ async function main(): Promise<void> {
     transactionService,
     userService,
     aiTransactionParser,
-    receiptImportService
+    receiptImportService,
+    reportService
   );
   registerReceiptImportCommand(
     bot,
@@ -102,7 +108,8 @@ async function main(): Promise<void> {
     bot,
     reportService,
     historyService,
-    userService
+    userService,
+    reportExcelExportService
   );
 
   bot.start({

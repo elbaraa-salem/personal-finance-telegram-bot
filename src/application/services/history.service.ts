@@ -5,6 +5,8 @@ import {
 } from "../../infrastructure/repositories/transaction.repository";
 import { UserRepository } from "../../infrastructure/repositories/user.repository";
 import { getMonthDateRange } from "./month-date-range";
+import { config } from "../../config/env";
+import { getCurrentDateRangeInTimezone } from "./timezone-date.service";
 
 export type HistoryPeriod = "day" | "week" | "month" | "year";
 
@@ -77,7 +79,7 @@ export class HistoryService {
       throw new Error("User not found. Please send /start first.");
     }
 
-    const dateRange = this.getDateRange(period);
+    const dateRange = this.getDateRange(period, user.timezone ?? config.appTimezone);
 
     return this.transactionRepository.findByUserIdAndDateRange(
       user._id,
@@ -143,52 +145,7 @@ export class HistoryService {
     };
   }
 
-  private getDateRange(period: HistoryPeriod): DateRange {
-    const now = new Date();
-
-    if (period === "day") {
-      const startDate = new Date(
-        Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
-      );
-
-      const endDate = new Date(startDate);
-      endDate.setUTCDate(startDate.getUTCDate() + 1);
-
-      return { startDate, endDate };
-    }
-
-    if (period === "week") {
-      const currentDate = new Date(
-        Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
-      );
-
-      const dayOfWeek = currentDate.getUTCDay(); // Sunday = 0
-      const daysFromMonday = (dayOfWeek + 6) % 7;
-
-      const startDate = new Date(currentDate);
-      startDate.setUTCDate(currentDate.getUTCDate() - daysFromMonday);
-
-      const endDate = new Date(startDate);
-      endDate.setUTCDate(startDate.getUTCDate() + 7);
-
-      return { startDate, endDate };
-    }
-
-    if (period === "month") {
-      const startDate = new Date(
-        Date.UTC(now.getFullYear(), now.getMonth(), 1)
-      );
-
-      const endDate = new Date(
-        Date.UTC(now.getFullYear(), now.getMonth() + 1, 1)
-      );
-
-      return { startDate, endDate };
-    }
-
-    const startDate = new Date(Date.UTC(now.getFullYear(), 0, 1));
-    const endDate = new Date(Date.UTC(now.getFullYear() + 1, 0, 1));
-
-    return { startDate, endDate };
+  private getDateRange(period: HistoryPeriod, timezone: string): DateRange {
+    return getCurrentDateRangeInTimezone(period, timezone);
   }
 }

@@ -6,6 +6,8 @@ import {
     TransactionDocument 
 } from "../../infrastructure/database/models/transaction.model";
 import { TransactionRepository } from "../../infrastructure/repositories/transaction.repository";
+import { config } from "../../config/env";
+import { getTodayDateOnlyInTimezone } from "./timezone-date.service";
 
 type AddTransactionData = {
   telegramId: number;
@@ -18,12 +20,8 @@ type AddTransactionData = {
   transactionDate?: Date;
 };
 
-function getTodayDateOnly(): Date {
-    const now = new Date();
-
-    return new Date(
-        Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
-);
+function getTodayDateOnly(timezone: string): Date {
+    return getTodayDateOnlyInTimezone(timezone);
 }
 export class TransactionService {
     constructor(
@@ -42,13 +40,15 @@ export class TransactionService {
             throw new Error("user not found. Please send /start first.");
         }
 
+        const timezone = user.timezone ?? config.appTimezone;
+
         return this.transactionRepository.create({
                 userId: user._id,
                 type: data.type,
                 ...(data.type === "expense" ? { scope: data.scope ?? "family" } : {}),
                 amount: data.amount,
                 category: data.category,
-                transactionDate: data.transactionDate ?? getTodayDateOnly(),
+                transactionDate: data.transactionDate ?? getTodayDateOnly(timezone),
                 ...(data.note ? { note: data.note } : {}),
                 ...(data.source ? { source: data.source } : {}),
             });
@@ -77,6 +77,8 @@ export class TransactionService {
             throw new Error("user not found. Please send /start first.");
         }
 
+        const timezone = user.timezone ?? config.appTimezone;
+
         return this.transactionRepository.createMany(
             data.map((item) => ({
                 userId: user._id,
@@ -84,7 +86,7 @@ export class TransactionService {
                 ...(item.type === "expense" ? { scope: item.scope ?? "family" } : {}),
                 amount: item.amount,
                 category: item.category,
-                transactionDate: item.transactionDate ?? getTodayDateOnly(),
+                transactionDate: item.transactionDate ?? getTodayDateOnly(timezone),
                 ...(item.note ? { note: item.note } : {}),
                 ...(item.source ? { source: item.source } : {}),
             }))

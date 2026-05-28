@@ -166,6 +166,64 @@ function isIsoDate(value: string): boolean {
   );
 }
 
+const EXPLICIT_DATE_PATTERN =
+  /(?<!\d)(?:(\d{2})[-./](\d{2})[-./](\d{4})|(\d{4})[-./](\d{2})[-./](\d{2}))(?!\d)/;
+
+export function extractExplicitDateFromText(
+  text: string
+): { date: Date; matchedText: string } | null {
+  const match = EXPLICIT_DATE_PATTERN.exec(text);
+
+  if (!match) {
+    return null;
+  }
+
+  const isDayFirst = Boolean(match[1] && match[2] && match[3]);
+  const isYearFirst = Boolean(match[4] && match[5] && match[6]);
+
+  if (!isDayFirst && !isYearFirst) {
+    return null;
+  }
+
+  const day = Number(isDayFirst ? match[1] : match[6]);
+  const month = Number(isDayFirst ? match[2] : match[5]);
+  const year = Number(isDayFirst ? match[3] : match[4]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  const isValidDate =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+
+  if (!isValidDate) {
+    return null;
+  }
+
+  return {
+    date,
+    matchedText: match[0],
+  };
+}
+
+function formatDateOnly(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function removeDateText(text: string, matchedText: string): string {
+  return text
+    .replace(matchedText, " ")
+    .replace(EXPLICIT_DATE_PATTERN, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/^[,.;:!?]\s*/, "")
+    .replace(/\s*[,.;:!?]$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeAiAmount(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
     return value;
@@ -296,10 +354,6 @@ function validateParseResult(value: unknown): AiTransactionParseResult {
     throw new Error("AI transaction category is missing.");
   }
 
-  if (!transactionDate || !isIsoDate(transactionDate)) {
-    throw new Error("AI transaction date is invalid.");
-  }
-
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
     throw new Error("AI confidence is invalid.");
   }
@@ -311,10 +365,39 @@ function validateParseResult(value: unknown): AiTransactionParseResult {
     scope: scope ?? null,
     amount,
     category,
-    transactionDate,
+    transactionDate: transactionDate && isIsoDate(transactionDate) ? transactionDate : "",
     note,
     currency,
     needsScopeConfirmation,
+  };
+}
+
+function applyDeterministicDate(
+  result: AiTransactionParseResult,
+  originalText: string,
+  currentDate: string
+): AiTransactionParseResult {
+  if (result.status !== "transaction") {
+    return result;
+  }
+
+  const explicitDate = extractExplicitDateFromText(originalText);
+
+  if (!explicitDate) {
+    return {
+      ...result,
+      transactionDate: result.transactionDate || currentDate,
+    };
+  }
+
+  const cleanedNote = removeDateText(result.note, explicitDate.matchedText);
+  const cleanedCategory = removeDateText(result.category, explicitDate.matchedText);
+
+  return {
+    ...result,
+    transactionDate: formatDateOnly(explicitDate.date),
+    category: cleanedCategory || result.category,
+    note: cleanedNote,
   };
 }
 
@@ -372,7 +455,7 @@ ${forcedTypeText}
 ${forcedScopeText}
 
 Output one of these exact shapes:
-{"status":"transaction","confidence":0.95,"type":"income","scope":null,"amount":1000,"category":"salary","transactionDate":"YYYY-MM-DD","note":"salary","currency":"RUB","needsScopeConfirmation":false}
+{"status":"transaction","confidence":0.95,"type":"income","scope":null,"amount":1000,"category":"salary","transactionDate":null,"note":"salary","currency":"RUB","needsScopeConfirmation":false}
 {"status":"not_transaction","reason":"..."}
 {"status":"missing_details","missingFields":["amount"],"question":"..."}
 
@@ -380,7 +463,11 @@ Rules:
 - amount must be a positive number. Prefer returning amount as a JSON number, not a string.
 - If amount is written with currency, extract only the numeric value. Example: "2000 рублей" => 2000.
 - If amount is uncertain, return missing_details.
-- transactionDate must be YYYY-MM-DD. If no date is mentioned, use the current date.
+- transactionDate must be YYYY-MM-DD when there is an explicit or relative date. If no explicit or relative date is mentioned, return transactionDate as null.
+- The user may write explicit dates in DD-MM-YYYY, DD.MM.YYYY, DD/MM/YYYY, YYYY-MM-DD, YYYY.MM.DD, or YYYY/MM/DD formats.
+- DD-MM-YYYY means day-month-year. YYYY-MM-DD means year-month-day.
+- If there is a date in the message, use it as transactionDate.
+- Do not include the date in category or note. Remove the date from note.
 - Support relative dates: اليوم, النهاردة, today, сегодня = current date; أمس, yesterday, вчера = current date minus 1 day; قبل يومين, two days ago, два дня назад = current date minus 2 days.
 - If the user selected a transaction type, keep that type exactly.
 - If the user selected an expense scope, keep that scope exactly.
@@ -403,6 +490,15 @@ Rules:
 - note should preserve the original idea without unnecessary words.
 - Arabic amount words may appear: ألف = 1000, ألفين = 2000, نص ألف = 500.
 - Support 2k as 2000 and common ruble words/symbols.
+
+Examples:
+Input: "ярче продукты 2026-05-01 1233"
+Output:
+{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":1233,"category":"ярче","transactionDate":"2026-05-01","note":"продукты","currency":"RUB","needsScopeConfirmation":true}
+
+Input: "17-05-2026 урок с Мария 3000 работа"
+Output:
+{"status":"transaction","confidence":0.95,"type":"income","scope":null,"amount":3000,"category":"работа","transactionDate":"2026-05-17","note":"урок с Мария","currency":"RUB","needsScopeConfirmation":false}
 
 Text:
 ${JSON.stringify(text)}
@@ -445,7 +541,12 @@ export class AiTransactionParserService {
     const responseText = await this.provider.complete(createPrompt(text, options));
     const parsedJson = JSON.parse(extractJson(responseText));
     const parsedResult = validateParseResult(parsedJson);
+    const datedResult = applyDeterministicDate(
+      parsedResult,
+      text,
+      options.currentDate
+    );
 
-    return applyForcedOptions(parsedResult, options);
+    return applyForcedOptions(datedResult, options);
   }
 }

@@ -4,6 +4,13 @@ export type TransactionType = "income" | "expense";
 export type TransactionScope = "personal" | "family";
 export type TransactionSource = "manual" | "receipt";
 
+export type TransactionMigrationBackup = {
+  transactionDateBeforeDateTextFix?: Date;
+  categoryBeforeDateTextFix?: string;
+  noteBeforeDateTextFix?: string;
+  fixedAt?: Date;
+};
+
 export interface TransactionDocument {
   _id: Types.ObjectId;
   userId: Types.ObjectId;
@@ -14,6 +21,7 @@ export interface TransactionDocument {
   note?: string;
   source?: TransactionSource;
   transactionDate: Date;
+  migrationBackup?: TransactionMigrationBackup;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -64,6 +72,12 @@ const transactionSchema = new Schema<TransactionDocument>(
       required: true,
       default: Date.now,
       index: true,
+    },
+    migrationBackup: {
+      transactionDateBeforeDateTextFix: Date,
+      categoryBeforeDateTextFix: String,
+      noteBeforeDateTextFix: String,
+      fixedAt: Date,
     },
   },
   {

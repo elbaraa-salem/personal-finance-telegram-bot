@@ -23,6 +23,11 @@ export type PendingDelete =
       transactionIds: string[];
     };
 
+export type PendingCustomReport = {
+  step: "from" | "to";
+  fromDate?: string;
+};
+
 export type AwaitingScopeConfirmation = {
   type: "expense";
   amount: number;
@@ -37,6 +42,7 @@ export type SessionData = {
   pendingReceiptImport: PendingReceiptImport | null;
   awaitingScopeConfirmation: AwaitingScopeConfirmation | null;
   pendingDelete: PendingDelete | null;
+  pendingCustomReport: PendingCustomReport | null;
 };
 
 export type BotContext = Context & SessionFlavor<SessionData>;
@@ -48,5 +54,6 @@ export function createInitialSession(): SessionData {
     pendingReceiptImport: null,
     awaitingScopeConfirmation: null,
     pendingDelete: null,
+    pendingCustomReport: null,
   };
 }

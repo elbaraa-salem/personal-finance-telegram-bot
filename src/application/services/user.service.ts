@@ -91,4 +91,26 @@ export class UserService {
         return user?.expenseScopeMode ?? "separate";
     }
 
+    async setUserTimezone(
+        telegramId: number,
+        timezone: string
+    ) {
+        const user = await this.userRepository.updateTimezoneByTelegramId(
+            telegramId,
+            timezone
+        );
+
+        if (!user) {
+            throw new Error("User not found. Please send /start first.");
+        }
+
+        return user;
+    }
+
+    async getUserTimezone(telegramId: number): Promise<string> {
+        const user = await this.userRepository.findByTelegramId(telegramId);
+
+        return user?.timezone ?? config.appTimezone;
+    }
+
 }

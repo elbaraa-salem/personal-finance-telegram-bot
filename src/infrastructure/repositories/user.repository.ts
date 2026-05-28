@@ -52,4 +52,15 @@ export class UserRepository {
             { returnDocument: "after" }
         ).exec();
     }
+
+    async updateTimezoneByTelegramId(
+        telegramId: number,
+        timezone: string
+    ): Promise<UserDocument | null> {
+        return UserModel.findOneAndUpdate(
+            { telegramId },
+            { $set: { timezone } },
+            { returnDocument: "after" }
+        ).exec();
+    }
 }
