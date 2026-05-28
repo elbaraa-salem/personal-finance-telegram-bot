@@ -92,7 +92,12 @@ async function main(): Promise<void> {
   registerTransactionCommands(bot, transactionService, userService);
   registerReportCommand(bot, reportService, userService);
   registerHistoryCommand(bot, historyService, userService);
-  registerDeleteLastCommand(bot, transactionService, userService);
+  registerDeleteLastCommand(
+    bot,
+    transactionService,
+    userService,
+    receiptImportRepository
+  );
   registerMenuCommandHandlers(
     bot,
     reportService,

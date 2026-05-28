@@ -5,6 +5,9 @@ export type MenuMessages = {
   addExpense: string;
   addFamilyExpense: string;
   addPersonalExpense: string;
+  manualEntry: string;
+  backToMainMenu: string;
+  chooseOperationType: string;
   reportAll: string;
   reportDay: string;
   reportWeek: string;
@@ -93,6 +96,10 @@ type TransactionFlowMessages = {
 
 type DeleteMessages = {
   confirmation: string;
+  deleteReceiptConfirm: (count: number) => string;
+  deleteReceiptSuccess: (count: number) => string;
+  deleteReceiptAlreadyDeleted: string;
+  deleteReceiptFailed: string;
   confirmButton: string;
   cancelButton: string;
   cancelled: string;
@@ -357,6 +364,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
     },
     delete: {
         confirmation: "هل أنت متأكد أنك تريد حذف آخر عملية؟",
+        deleteReceiptConfirm: (count: number) =>
+            `آخر عملية تابعة لشيك. هل تريد حذف كل العمليات الخاصة بهذا الشيك؟ العدد: ${count}`,
+        deleteReceiptSuccess: (count: number) =>
+            `تم حذف كل العمليات الخاصة بآخر شيك: ${count}`,
+        deleteReceiptAlreadyDeleted: "تم حذف هذا الشيك من قبل.",
+        deleteReceiptFailed: "تعذر حذف عمليات الشيك.",
         confirmButton: "نعم، احذف",
         cancelButton: "إلغاء",
         cancelled: "تم إلغاء الحذف.",
@@ -437,6 +450,9 @@ export const translations: Record<SupportedLanguage, Messages> = {
       addExpense: "➖ إضافة مصروف",
       addFamilyExpense: "🏠 إضافة مصروف أسري",
       addPersonalExpense: "👤 إضافة مصروف شخصي",
+      manualEntry: "✍️ إدخال يدوي",
+      backToMainMenu: "⬅️ القائمة الرئيسية",
+      chooseOperationType: "اختر نوع العملية:",
       reportAll: "📊 التقرير الكامل",
       reportDay: "📅 تقرير اليوم",
       reportWeek: "📆 تقرير الأسبوع",
@@ -620,6 +636,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
 
     delete: {
         confirmation: "Вы уверены, что хотите удалить последнюю операцию?",
+        deleteReceiptConfirm: (count: number) =>
+            `Последняя операция относится к чеку. Удалить все операции из этого чека? Количество: ${count}`,
+        deleteReceiptSuccess: (count: number) =>
+            `Удалены все операции из последнего чека: ${count}`,
+        deleteReceiptAlreadyDeleted: "Этот чек уже был удалён.",
+        deleteReceiptFailed: "Не удалось удалить операции из чека.",
         confirmButton: "Да, удалить",
         cancelButton: "Отмена",
         cancelled: "Удаление отменено.",
@@ -699,6 +721,9 @@ export const translations: Record<SupportedLanguage, Messages> = {
       addExpense: "➖ Добавить расход",
       addFamilyExpense: "🏠 Добавить семейный расход",
       addPersonalExpense: "👤 Добавить личный расход",
+      manualEntry: "✍️ Ручной ввод",
+      backToMainMenu: "⬅️ Главное меню",
+      chooseOperationType: "Выберите тип операции:",
       reportAll: "📊 Общий отчёт",
       reportDay: "📅 Отчёт за день",
       reportWeek: "📆 Отчёт за неделю",
@@ -880,6 +905,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
     },
     delete: {
         confirmation: "Are you sure you want to delete the last transaction?",
+        deleteReceiptConfirm: (count: number) =>
+            `The last transaction belongs to a receipt. Delete all transactions from this receipt? Count: ${count}`,
+        deleteReceiptSuccess: (count: number) =>
+            `Deleted all transactions from the last receipt: ${count}`,
+        deleteReceiptAlreadyDeleted: "This receipt was already deleted.",
+        deleteReceiptFailed: "Could not delete receipt transactions.",
         confirmButton: "Yes, delete",
         cancelButton: "Cancel",
         cancelled: "Deletion cancelled.",
@@ -959,6 +990,9 @@ export const translations: Record<SupportedLanguage, Messages> = {
       addExpense: "➖ Add expense",
       addFamilyExpense: "🏠 Add family expense",
       addPersonalExpense: "👤 Add personal expense",
+      manualEntry: "✍️ Manual entry",
+      backToMainMenu: "⬅️ Main menu",
+      chooseOperationType: "Choose operation type:",
       reportAll: "📊 Full report",
       reportDay: "📅 Day report",
       reportWeek: "📆 Week report",

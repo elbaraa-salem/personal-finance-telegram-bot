@@ -5,7 +5,11 @@ import {
 } from "../../application/services/report.service";
 import { HistoryService } from "../../application/services/history.service";
 import { isValidYearMonth } from "../../application/services/month-date-range";
-import { createMainMenuKeyboard, getMainMenuButtonTexts } from "../keyboards/main-menu.keyboard";
+import {
+  createMainMenuKeyboard,
+  createManualEntryKeyboard,
+  getMainMenuButtonTexts,
+} from "../keyboards/main-menu.keyboard";
 import { formatReport } from "../formatters/report.formatter";
 import { formatTransactionLine } from "../formatters/transaction.formatter";
 import { BotContext } from "../context";
@@ -297,6 +301,39 @@ export function registerMenuCommandHandlers(
 
   bot.hears(getMainMenuButtonTexts("moreReports"), async (ctx) => {
     await replyWithAvailableReportMonths(ctx, reportService, userService);
+  });
+
+  bot.hears(getMainMenuButtonTexts("manualEntry"), async (ctx) => {
+    const telegramUser = ctx.from;
+
+    if (!telegramUser) {
+      await ctx.reply(getMessages().common.readUserError);
+      return;
+    }
+
+    const language = await userService.getUserLanguage(telegramUser.id);
+    const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
+    const messages = getMessages(language);
+
+    await ctx.reply(messages.menu.chooseOperationType, {
+      reply_markup: createManualEntryKeyboard(language, expenseScopeMode),
+    });
+  });
+
+  bot.hears(getMainMenuButtonTexts("backToMainMenu"), async (ctx) => {
+    const telegramUser = ctx.from;
+
+    if (!telegramUser) {
+      await ctx.reply(getMessages().common.readUserError);
+      return;
+    }
+
+    const language = await userService.getUserLanguage(telegramUser.id);
+    const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
+
+    await ctx.reply(getMessages(language).language.ready, {
+      reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
+    });
   });
 
     bot.callbackQuery(/^report_month:(\d{4}-\d{2})$/, async (ctx) => {

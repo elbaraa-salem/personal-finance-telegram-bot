@@ -6,6 +6,7 @@ export type ReceiptImportStatus =
   | "parsed"
   | "ai_grouped"
   | "confirmed"
+  | "deleted"
   | "cancelled"
   | "failed";
 
@@ -133,7 +134,7 @@ const receiptImportSchema = new Schema<ReceiptImportDocument>(
     },
     status: {
       type: String,
-      enum: ["received", "parsed", "ai_grouped", "confirmed", "cancelled", "failed"],
+      enum: ["received", "parsed", "ai_grouped", "confirmed", "deleted", "cancelled", "failed"],
       required: true,
       index: true,
     },

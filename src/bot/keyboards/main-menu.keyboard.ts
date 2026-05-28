@@ -12,38 +12,54 @@ type MenuButtonKey = keyof MenuMessages;
 const MAIN_MENU_LAYOUT: MenuButtonKey[][] = [
   ["reportDay"],
   [ "history", "moreReports"],
-  [ "addFamilyExpense", "addPersonalExpense"],
-  [ "addIncome", "deleteLast" ],
+  [ "deleteLast", "manualEntry"],
   ["settings", "help"],
 ];
 
-const SINGLE_EXPENSE_MENU_LAYOUT: MenuButtonKey[][] = [
-  ["reportDay"],
-  [ "history", "moreReports"],
-  [ "addExpense", "addIncome"],
-  [ "settings", "help" ],
-];
-
 export function createMainMenuKeyboard(
+  language: SupportedLanguage = defaultLanguage,
+  _expenseScopeMode: ExpenseScopeMode = "separate"
+): Keyboard {
+  const menu = getMessages(language).menu;
+  const keyboard = new Keyboard();
+
+  MAIN_MENU_LAYOUT.forEach((row, rowIndex) => {
+    row.forEach((key) => {
+      keyboard.text(menu[key]);
+    });
+
+    if (rowIndex < MAIN_MENU_LAYOUT.length - 1) {
+      keyboard.row();
+    }
+  });
+
+  return keyboard.resized();
+}
+
+export function createManualEntryKeyboard(
   language: SupportedLanguage = defaultLanguage,
   expenseScopeMode: ExpenseScopeMode = "separate"
 ): Keyboard {
   const menu = getMessages(language).menu;
   const keyboard = new Keyboard();
-  const layout =
-    expenseScopeMode === "separate"
-      ? MAIN_MENU_LAYOUT
-      : SINGLE_EXPENSE_MENU_LAYOUT;
 
-  layout.forEach((row, rowIndex) => {
-    row.forEach((key) => {
-      keyboard.text(menu[key]);
-    });
+  if (expenseScopeMode === "separate") {
+    keyboard
+      .text(menu.addIncome)
+      .row()
+      .text(menu.addFamilyExpense)
+      .text(menu.addPersonalExpense)
+      .row()
+      .text(menu.backToMainMenu);
 
-    if (rowIndex < layout.length - 1) {
-      keyboard.row();
-    }
-  });
+    return keyboard.resized();
+  }
+
+  keyboard
+    .text(menu.addIncome)
+    .text(menu.addExpense)
+    .row()
+    .text(menu.backToMainMenu);
 
   return keyboard.resized();
 }

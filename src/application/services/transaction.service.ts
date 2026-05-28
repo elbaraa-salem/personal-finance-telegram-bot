@@ -108,4 +108,55 @@ export class TransactionService {
         return deletedTransaction;
     }
 
+    async getLatestTransaction(telegramId: number): Promise<TransactionDocument> {
+        const user = await this.userRepository.findByTelegramId(telegramId);
+
+        if (!user) {
+            throw new Error("User not found. Please send /start first.");
+        }
+
+        const transaction = await this.transactionRepository.findLatestByUserId(user._id);
+
+        if (!transaction) {
+            throw new Error("No transactions found to delete.");
+        }
+
+        return transaction;
+    }
+
+    async deleteTransactionById(
+        telegramId: number,
+        transactionId: string
+    ): Promise<TransactionDocument> {
+        const user = await this.userRepository.findByTelegramId(telegramId);
+
+        if (!user) {
+            throw new Error("User not found. Please send /start first.");
+        }
+
+        const deletedTransaction = await this.transactionRepository.deleteByIdAndUserId(
+            user._id,
+            transactionId
+        );
+
+        if (!deletedTransaction) {
+            throw new Error("No transactions found to delete.");
+        }
+
+        return deletedTransaction;
+    }
+
+    async deleteTransactionsByIds(
+        telegramId: number,
+        transactionIds: string[]
+    ): Promise<number> {
+        const user = await this.userRepository.findByTelegramId(telegramId);
+
+        if (!user) {
+            throw new Error("User not found. Please send /start first.");
+        }
+
+        return this.transactionRepository.deleteManyByIds(user._id, transactionIds);
+    }
+
 }

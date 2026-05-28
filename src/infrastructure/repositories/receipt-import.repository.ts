@@ -116,6 +116,25 @@ export class ReceiptImportRepository {
     return this.updateStatus(id, "confirmed");
   }
 
+  async markDeleted(id: string | Types.ObjectId): Promise<ReceiptImportDocument | null> {
+    return this.updateStatus(id, "deleted");
+  }
+
+  async findByCreatedTransactionId(
+    userId: Types.ObjectId,
+    transactionId: string | Types.ObjectId
+  ): Promise<ReceiptImportDocument | null> {
+    if (!Types.ObjectId.isValid(transactionId)) {
+      return null;
+    }
+
+    return ReceiptImportModel.findOne({
+      userId,
+      createdTransactionIds: new Types.ObjectId(transactionId),
+      status: { $in: ["confirmed", "deleted"] },
+    }).exec();
+  }
+
   async markConfirmedIfAiGrouped(
     id: string | Types.ObjectId
   ): Promise<ReceiptImportDocument | null> {

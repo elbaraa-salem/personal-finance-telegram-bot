@@ -12,6 +12,17 @@ export type PendingReceiptImport = {
   scope?: TransactionScope;
 };
 
+export type PendingDelete =
+  | {
+      kind: "single_transaction";
+      transactionId: string;
+    }
+  | {
+      kind: "receipt_import";
+      receiptImportId: string;
+      transactionIds: string[];
+    };
+
 export type AwaitingScopeConfirmation = {
   type: "expense";
   amount: number;
@@ -25,6 +36,7 @@ export type SessionData = {
   pendingCurrencyInput: boolean;
   pendingReceiptImport: PendingReceiptImport | null;
   awaitingScopeConfirmation: AwaitingScopeConfirmation | null;
+  pendingDelete: PendingDelete | null;
 };
 
 export type BotContext = Context & SessionFlavor<SessionData>;
@@ -35,5 +47,6 @@ export function createInitialSession(): SessionData {
     pendingCurrencyInput: false,
     pendingReceiptImport: null,
     awaitingScopeConfirmation: null,
+    pendingDelete: null,
   };
 }

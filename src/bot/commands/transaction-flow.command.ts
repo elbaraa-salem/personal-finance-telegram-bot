@@ -9,6 +9,7 @@ import { BotContext } from "../context";
 import { UserService } from "../../application/services/user.service";
 import {
   createMainMenuKeyboard,
+  createManualEntryKeyboard,
   getMainMenuButtonTexts,
   isMainMenuButtonText,
 } from "../keyboards/main-menu.keyboard";
@@ -532,7 +533,15 @@ export function registerTransactionFlowCommand(
     }
 
     const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
-    const scope = getForcedScopeFromUserMode(expenseScopeMode) ?? "family";
+    const scope = getForcedScopeFromUserMode(expenseScopeMode);
+
+    if (!scope) {
+      const language = await userService.getUserLanguage(telegramUser.id);
+      await ctx.reply(getMessages(language).menu.chooseOperationType, {
+        reply_markup: createManualEntryKeyboard(language, expenseScopeMode),
+      });
+      return;
+    }
 
     await startTransactionFlow(ctx, "expense", userService, scope);
   });

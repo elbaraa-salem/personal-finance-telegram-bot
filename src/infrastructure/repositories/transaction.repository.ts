@@ -89,6 +89,48 @@ export class TransactionRepository {
     ).exec();
   }
 
+  async findLatestByUserId(
+    userId: Types.ObjectId
+  ): Promise<TransactionDocument | null> {
+    return TransactionModel.findOne({ userId })
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  async deleteByIdAndUserId(
+    userId: Types.ObjectId,
+    transactionId: string | Types.ObjectId
+  ): Promise<TransactionDocument | null> {
+    if (!Types.ObjectId.isValid(transactionId)) {
+      return null;
+    }
+
+    return TransactionModel.findOneAndDelete({
+      _id: new Types.ObjectId(transactionId),
+      userId,
+    }).exec();
+  }
+
+  async deleteManyByIds(
+    userId: Types.ObjectId,
+    transactionIds: Array<string | Types.ObjectId>
+  ): Promise<number> {
+    const objectIds = transactionIds
+      .filter((transactionId) => Types.ObjectId.isValid(transactionId))
+      .map((transactionId) => new Types.ObjectId(transactionId));
+
+    if (objectIds.length === 0) {
+      return 0;
+    }
+
+    const result = await TransactionModel.deleteMany({
+      userId,
+      _id: { $in: objectIds },
+    }).exec();
+
+    return result.deletedCount ?? 0;
+  }
+
   async getSummaryByUserId(userId: Types.ObjectId): Promise<TransactionSummary> {
     const result = await TransactionModel.aggregate<AggregatedTransactionSummary>(
       [
