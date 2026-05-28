@@ -1,6 +1,7 @@
 import { UserRepository } from "../../infrastructure/repositories/user.repository";
 import { defaultLanguage, SupportedLanguage } from "../../bot/i18n/language";
 import { config } from "../../config/env";
+import { ExpenseScopeMode } from "../../infrastructure/database/models/user.model";
 
 type RegisterTelegramUserData = {
     telegramId: number;
@@ -66,6 +67,28 @@ export class UserService {
         const user = await this.userRepository.findByTelegramId(telegramId);
 
         return user?.currency ?? config.defaultCurrency;
+    }
+
+    async setExpenseScopeMode(
+        telegramId: number,
+        expenseScopeMode: ExpenseScopeMode
+    ) {
+        const user = await this.userRepository.updateExpenseScopeModeByTelegramId(
+            telegramId,
+            expenseScopeMode
+        );
+
+        if (!user) {
+            throw new Error("User not found. Please send /start first.");
+        }
+
+        return user;
+    }
+
+    async getExpenseScopeMode(telegramId: number): Promise<ExpenseScopeMode> {
+        const user = await this.userRepository.findByTelegramId(telegramId);
+
+        return user?.expenseScopeMode ?? "separate";
     }
 
 }

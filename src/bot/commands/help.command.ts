@@ -19,10 +19,11 @@ export function registerHelpCommand(
 
     const language = await userService.getUserLanguage(telegramUser.id);
     const currency = await userService.getUserCurrency(telegramUser.id);
+    const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
     const messages = getMessages(language);
 
     await ctx.reply(messages.help.text(currency), {
-      reply_markup: createMainMenuKeyboard(language),
+      reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
     });
   });
 }

@@ -15,6 +15,7 @@ export type MenuMessages = {
   deleteLast: string;
   language: string;
   currency: string;
+  expenseModeSettingsButton: string;
   moreReports: string;
   settings: string;
 };
@@ -45,6 +46,8 @@ type TransactionMessages = {
   scope: string;
   personalScope: string;
   familyScope: string;
+  scopePersonal: string;
+  scopeFamily: string;
   amount: string;
   category: string;
   date: string;
@@ -132,6 +135,8 @@ type ReceiptMessages = {
   receiptAiNotConfigured: string;
   receiptNoItems: string;
   groupedTotalDiffers: string;
+  receiptChooseScopeAndConfirmAmount: string;
+  receiptCurrentScope: string;
   qrImageProcessing: string;
   qrImageDecodeFailed: string;
   qrImageUnsupportedFile: string;
@@ -149,6 +154,15 @@ type CurrencyMessages = {
   customButton: string;
   customPrompt: string;
   invalidCustom: string;
+};
+
+type ExpenseScopeModeMessages = {
+  question: string;
+  separate: string;
+  personalOnly: string;
+  familyOnly: string;
+  updated: string;
+  fixedBySettings: string;
 };
 
 type Messages = {
@@ -175,6 +189,7 @@ type Messages = {
   delete: DeleteMessages;
   manualTransaction: ManualTransactionMessages;
   currency: CurrencyMessages;
+  expenseScopeMode: ExpenseScopeModeMessages;
 };
 
 export const translations: Record<SupportedLanguage, Messages> = {
@@ -210,6 +225,14 @@ export const translations: Record<SupportedLanguage, Messages> = {
             "العملة غير صحيحة.\n" +
             "اكتب رمزًا قصيرًا للعملة، مثال: USD أو RUB أو ₽.",
     },
+    expenseScopeMode: {
+        question: "كيف تريد تسجيل المصروفات؟",
+        separate: "👥 فصل الشخصي والأسري",
+        personalOnly: "👤 كل المصروفات شخصية",
+        familyOnly: "🏠 كل المصروفات أسرية",
+        updated: "تم تحديث طريقة تسجيل المصروفات.",
+        fixedBySettings: "نوع المصروفات ثابت من الإعدادات.",
+    },
     report: {
         titles: {
             all: "📊 التقرير الكامل",
@@ -235,6 +258,8 @@ export const translations: Record<SupportedLanguage, Messages> = {
         scope: "النطاق",
         personalScope: "شخصي",
         familyScope: "أسري",
+        scopePersonal: "شخصية",
+        scopeFamily: "أسرية",
         amount: "المبلغ",
         category: "التصنيف",
         date: "التاريخ",
@@ -314,7 +339,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         receiptTotal: "الإجمالي",
         receiptTransactionsToCreate: "سيتم إنشاء العمليات",
         receiptSaveQuestion: "هل تريد حفظ العمليات؟",
-        receiptSaveButton: "✅ احفظ",
+        receiptSaveButton: "✅ حفظ",
         receiptCancelButton: "❌ إلغاء",
         receiptSaved: "✅ تم حفظ عمليات الشيك.",
         receiptAlreadySaved: "تم حفظ هذا الشيك من قبل.",
@@ -323,6 +348,8 @@ export const translations: Record<SupportedLanguage, Messages> = {
         receiptAiNotConfigured: "تحليل الشيك بالذكاء الاصطناعي غير مفعّل.",
         receiptNoItems: "لم أجد عناصر في الشيك.",
         groupedTotalDiffers: "⚠️ إجمالي المجموعات يختلف عن إجمالي الشيك.",
+        receiptChooseScopeAndConfirmAmount: "اختر نوع المصروف وتأكد أن المبلغ صحيح:",
+        receiptCurrentScope: "النطاق",
         qrImageProcessing: "جاري قراءة QR من الصورة...",
         qrImageDecodeFailed: "لم أستطع قراءة كود QR من الصورة. حاول تصوير الكود بشكل أوضح أو أرسل نص QR.",
         qrImageUnsupportedFile: "هذا الملف ليس صورة مدعومة.",
@@ -420,6 +447,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
       deleteLast: "🗑 حذف آخر عملية",
       language: "🌐 اللغة / Language",
       currency: "💱 العملة",
+      expenseModeSettingsButton: "👥 نوع المصروفات",
       moreReports: "📊 تقارير أخرى",
       settings: "⚙️ الإعدادات",
     },
@@ -457,6 +485,14 @@ export const translations: Record<SupportedLanguage, Messages> = {
             "Некорректная валюта.\n" +
             "Введите короткое обозначение валюты, например USD, RUB или ₽.",
     },
+    expenseScopeMode: {
+        question: "Как учитывать расходы?",
+        separate: "👥 Разделять личные и семейные",
+        personalOnly: "👤 Все расходы личные",
+        familyOnly: "🏠 Все расходы семейные",
+        updated: "Способ учёта расходов обновлён.",
+        fixedBySettings: "Тип расходов закреплён в настройках.",
+    },
     report: {
         titles: {
             all: "📊 Общий отчёт",
@@ -483,6 +519,8 @@ export const translations: Record<SupportedLanguage, Messages> = {
         scope: "Область",
         personalScope: "личная",
         familyScope: "семейная",
+        scopePersonal: "личная",
+        scopeFamily: "семейная",
         amount: "Сумма",
         category: "Категория",
         date: "Дата",
@@ -572,6 +610,8 @@ export const translations: Record<SupportedLanguage, Messages> = {
         receiptAiNotConfigured: "AI-группировка чека не настроена.",
         receiptNoItems: "В чеке не найдены позиции.",
         groupedTotalDiffers: "⚠️ Сумма групп отличается от итога чека.",
+        receiptChooseScopeAndConfirmAmount: "Выберите область расхода и подтвердите, что сумма верная:",
+        receiptCurrentScope: "Область",
         qrImageProcessing: "Читаю QR-код с изображения...",
         qrImageDecodeFailed: "Не удалось прочитать QR-код на фото. Попробуйте сфотографировать QR-код крупнее и чётче или отправьте текст QR.",
         qrImageUnsupportedFile: "Этот файл не является поддерживаемым изображением.",
@@ -669,6 +709,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
       deleteLast: "🗑 Удалить последнюю",
       language: "🌐 Язык / Language",
       currency: "💱 Валюта",
+      expenseModeSettingsButton: "👥 Тип расходов",
       moreReports: "📊 Другие отчёты",
       settings: "⚙️ Настройки",
     },
@@ -706,6 +747,14 @@ export const translations: Record<SupportedLanguage, Messages> = {
             "Invalid currency.\n" +
             "Enter a short currency symbol/code, for example USD, RUB, or ₽.",
     },
+    expenseScopeMode: {
+        question: "How do you want to track expenses?",
+        separate: "👥 Separate personal and family",
+        personalOnly: "👤 All expenses are personal",
+        familyOnly: "🏠 All expenses are family",
+        updated: "Expense mode updated.",
+        fixedBySettings: "Expense scope is fixed by settings.",
+    },
     report: {
         titles: {
         all: "📊 Full report",
@@ -731,6 +780,8 @@ export const translations: Record<SupportedLanguage, Messages> = {
         scope: "Scope",
         personalScope: "personal",
         familyScope: "family",
+        scopePersonal: "personal",
+        scopeFamily: "family",
         amount: "Amount",
         category: "Category",
         date: "Date",
@@ -820,6 +871,8 @@ export const translations: Record<SupportedLanguage, Messages> = {
         receiptAiNotConfigured: "Receipt AI grouping is not configured.",
         receiptNoItems: "No receipt items were found.",
         groupedTotalDiffers: "⚠️ The grouped total differs from receipt total.",
+        receiptChooseScopeAndConfirmAmount: "Choose expense scope and confirm that the amount is correct:",
+        receiptCurrentScope: "Scope",
         qrImageProcessing: "Reading QR code from the image...",
         qrImageDecodeFailed: "I could not read a QR code from the image. Try taking a clearer photo of the QR code or send the QR text.",
         qrImageUnsupportedFile: "This file is not a supported image.",
@@ -916,6 +969,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
       deleteLast: "🗑 Delete last",
       language: "🌐 Language",
       currency: "💱 Currency",
+      expenseModeSettingsButton: "👥 Expense mode",
       moreReports: "📊 More reports",
       settings: "⚙️ Settings",
     },

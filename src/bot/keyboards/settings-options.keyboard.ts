@@ -5,6 +5,7 @@ import { getMessages } from "../i18n/translations";
 export const settingsOptionCallbacks = {
   language: "settings:language",
   currency: "settings:currency",
+  expenseScopeMode: "settings:expense_scope_mode",
 } as const;
 
 export function createSettingsOptionsKeyboard(
@@ -14,5 +15,7 @@ export function createSettingsOptionsKeyboard(
 
   return new InlineKeyboard()
     .text(menu.language, settingsOptionCallbacks.language)
-    .text(menu.currency, settingsOptionCallbacks.currency);
+    .text(menu.currency, settingsOptionCallbacks.currency)
+    .row()
+    .text(menu.expenseModeSettingsButton, settingsOptionCallbacks.expenseScopeMode);
 }

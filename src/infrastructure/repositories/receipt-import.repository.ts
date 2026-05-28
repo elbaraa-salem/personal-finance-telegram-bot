@@ -5,6 +5,7 @@ import {
   ReceiptImportModel,
   ReceiptImportStatus,
 } from "../database/models/receipt-import.model";
+import { TransactionScope } from "../database/models/transaction.model";
 
 type CreateReceiptImportData = {
   userId: Types.ObjectId;
@@ -46,18 +47,42 @@ export class ReceiptImportRepository {
     return ReceiptImportModel.findByIdAndUpdate(
       id,
       { $set: { status } },
-      { new: true }
+      { returnDocument: "after" }
     ).exec();
   }
 
   async setAiTransactions(
     id: string | Types.ObjectId,
+    aiTransactions: ReceiptImportAiTransaction[],
+    selectedScope?: TransactionScope
+  ): Promise<ReceiptImportDocument | null> {
+    return ReceiptImportModel.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          status: "ai_grouped",
+          aiTransactions,
+          ...(selectedScope ? { selectedScope } : {}),
+        },
+      },
+      { returnDocument: "after" }
+    ).exec();
+  }
+
+  async setSelectedScopeAndAiTransactions(
+    id: string | Types.ObjectId,
+    scope: TransactionScope,
     aiTransactions: ReceiptImportAiTransaction[]
   ): Promise<ReceiptImportDocument | null> {
     return ReceiptImportModel.findByIdAndUpdate(
       id,
-      { $set: { status: "ai_grouped", aiTransactions } },
-      { new: true }
+      {
+        $set: {
+          selectedScope: scope,
+          aiTransactions,
+        },
+      },
+      { returnDocument: "after" }
     ).exec();
   }
 
@@ -68,7 +93,7 @@ export class ReceiptImportRepository {
     return ReceiptImportModel.findByIdAndUpdate(
       id,
       { $set: { createdTransactionIds: transactionIds } },
-      { new: true }
+      { returnDocument: "after" }
     ).exec();
   }
 
@@ -79,7 +104,7 @@ export class ReceiptImportRepository {
     return ReceiptImportModel.findByIdAndUpdate(
       id,
       { $set: { status: "failed", errorMessage } },
-      { new: true }
+      { returnDocument: "after" }
     ).exec();
   }
 
@@ -97,7 +122,7 @@ export class ReceiptImportRepository {
     return ReceiptImportModel.findOneAndUpdate(
       { _id: id, status: "ai_grouped" },
       { $set: { status: "confirmed" } },
-      { new: true }
+      { returnDocument: "after" }
     ).exec();
   }
 }

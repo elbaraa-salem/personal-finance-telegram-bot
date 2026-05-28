@@ -18,6 +18,11 @@ import {
   settingsOptionCallbacks,
 } from "../keyboards/settings-options.keyboard";
 import {
+  createExpenseScopeModeKeyboard,
+  expenseScopeModeCallbacks,
+  getExpenseScopeModeFromCallback,
+} from "../keyboards/expense-scope-mode.keyboard";
+import {
   createHistoryPaginationKeyboard,
   createMonthSelectionKeyboard,
 } from "../keyboards/month-selection.keyboard";
@@ -356,6 +361,56 @@ export function registerMenuCommandHandlers(
         await askForCurrency(ctx, userService);
     });
 
+    bot.callbackQuery(settingsOptionCallbacks.expenseScopeMode, async (ctx) => {
+        await ctx.answerCallbackQuery();
+
+        const telegramUser = ctx.from;
+
+        if (!telegramUser) {
+            await ctx.reply(getMessages().common.readUserError);
+            return;
+        }
+
+        const language = await userService.getUserLanguage(telegramUser.id);
+
+        await ctx.reply(getMessages(language).expenseScopeMode.question, {
+            reply_markup: createExpenseScopeModeKeyboard(language),
+        });
+    });
+
+    bot.callbackQuery(
+      [
+        expenseScopeModeCallbacks.separate,
+        expenseScopeModeCallbacks.personalOnly,
+        expenseScopeModeCallbacks.familyOnly,
+      ],
+      async (ctx) => {
+        await ctx.answerCallbackQuery();
+
+        const telegramUser = ctx.from;
+
+        if (!telegramUser) {
+          await ctx.reply(getMessages().common.readUserError);
+          return;
+        }
+
+        const mode = getExpenseScopeModeFromCallback(ctx.callbackQuery.data);
+        const language = await userService.getUserLanguage(telegramUser.id);
+        const messages = getMessages(language);
+
+        if (!mode) {
+          await ctx.reply(messages.common.unexpectedError);
+          return;
+        }
+
+        await userService.setExpenseScopeMode(telegramUser.id, mode);
+
+        await ctx.reply(messages.expenseScopeMode.updated, {
+          reply_markup: createMainMenuKeyboard(language, mode),
+        });
+      }
+    );
+
     bot.hears(getMainMenuButtonTexts("help"), async (ctx) => {
     const telegramUser = ctx.from;
 
@@ -368,8 +423,10 @@ export function registerMenuCommandHandlers(
     const currency = await userService.getUserCurrency(telegramUser.id);
     const messages = getMessages(language);
 
+    const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
+
     await ctx.reply(messages.help.text(currency), {
-        reply_markup: createMainMenuKeyboard(language),
+        reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
     });
     });
 }

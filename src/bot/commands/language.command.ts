@@ -7,10 +7,8 @@ import {
   getLanguageFromCallback,
   languageCallbacks,
 } from "../keyboards/language.keyboard";
-import {
-  createMainMenuKeyboard,
-  getMainMenuButtonTexts,
-} from "../keyboards/main-menu.keyboard";
+import { getMainMenuButtonTexts } from "../keyboards/main-menu.keyboard";
+import { createExpenseScopeModeKeyboard } from "../keyboards/expense-scope-mode.keyboard";
 
 export async function askForLanguage(ctx: BotContext): Promise<void> {
   await ctx.reply(getMessages().start.chooseLanguage, {
@@ -46,8 +44,9 @@ export function registerLanguageCommand(
 
       const messages = getMessages(language);
 
-      await ctx.reply(messages.language.selected + "\n\n" + messages.language.ready, {
-        reply_markup: createMainMenuKeyboard(language),
+      await ctx.reply(messages.language.selected);
+      await ctx.reply(messages.expenseScopeMode.question, {
+        reply_markup: createExpenseScopeModeKeyboard(language),
       });
     }
   );

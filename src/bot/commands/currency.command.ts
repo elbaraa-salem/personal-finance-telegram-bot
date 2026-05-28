@@ -91,9 +91,10 @@ export function registerCurrencyCommand(
       }
 
       await userService.setUserCurrency(telegramUser.id, currency);
+      const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
 
       await ctx.reply(messages.currency.selected(currency), {
-        reply_markup: createMainMenuKeyboard(language),
+        reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
       });
     }
   );
@@ -123,11 +124,12 @@ export function registerCurrencyCommand(
     }
 
     await userService.setUserCurrency(telegramUser.id, currency);
+    const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
 
     ctx.session.pendingCurrencyInput = false;
 
     await ctx.reply(messages.currency.selected(currency), {
-      reply_markup: createMainMenuKeyboard(language),
+      reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
     });
   });
 }

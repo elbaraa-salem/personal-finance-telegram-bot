@@ -45,6 +45,7 @@ export interface ReceiptImportDocument {
     address?: string;
   };
   items: NormalizedReceiptItemDocument[];
+  selectedScope?: TransactionScope;
   aiTransactions?: ReceiptImportAiTransaction[];
   createdTransactionIds: Types.ObjectId[];
   rawResponse: unknown;
@@ -158,6 +159,11 @@ const receiptImportSchema = new Schema<ReceiptImportDocument>(
       type: [normalizedReceiptItemSchema],
       required: true,
       default: [],
+    },
+    selectedScope: {
+      type: String,
+      enum: ["personal", "family"],
+      required: false,
     },
     aiTransactions: {
       type: [receiptImportAiTransactionSchema],

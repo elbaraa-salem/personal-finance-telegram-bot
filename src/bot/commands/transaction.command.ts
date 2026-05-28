@@ -5,6 +5,7 @@ import {
   TransactionScope,
   TransactionType,
 } from "../../infrastructure/database/models/transaction.model";
+import { ExpenseScopeMode } from "../../infrastructure/database/models/user.model";
 import { BotContext } from "../context";
 import { formatCreatedTransaction } from "../formatters/transaction.formatter";
 import { getMessages } from "../i18n/translations";
@@ -146,6 +147,18 @@ function isShortcutTransactionText(text: string): boolean {
   return trimmedText.startsWith("+") || trimmedText.startsWith("-");
 }
 
+function getForcedScopeFromUserMode(mode: ExpenseScopeMode): TransactionScope | undefined {
+  if (mode === "personal_only") {
+    return "personal";
+  }
+
+  if (mode === "family_only") {
+    return "family";
+  }
+
+  return undefined;
+}
+
 async function handleParsedTransaction(
   ctx: BotContext,
   parsedTransaction: ParsedTransactionInput,
@@ -161,13 +174,17 @@ async function handleParsedTransaction(
 
   const language = await userService.getUserLanguage(telegramUser.id);
   const currency = await userService.getUserCurrency(telegramUser.id);
+  const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
+  const forcedScope = parsedTransaction.type === "expense"
+    ? getForcedScopeFromUserMode(expenseScopeMode)
+    : undefined;
   const messages = getMessages(language);
 
   try {
     const transaction = await transactionService.addTransaction({
       telegramId: telegramUser.id,
       type: parsedTransaction.type,
-      ...(parsedTransaction.scope ? { scope: parsedTransaction.scope } : {}),
+      ...(forcedScope ?? parsedTransaction.scope ? { scope: forcedScope ?? parsedTransaction.scope } : {}),
       amount: parsedTransaction.amount,
       category: parsedTransaction.category,
       ...(parsedTransaction.note ? { note: parsedTransaction.note } : {}),

@@ -47,9 +47,10 @@ export function registerStartCommand(
     }
 
     const messages = getMessages(user.language);
+    const expenseScopeMode = user.expenseScopeMode ?? "separate";
 
     await ctx.reply(messages.start.welcome, {
-      reply_markup: createMainMenuKeyboard(user.language),
+      reply_markup: createMainMenuKeyboard(user.language, expenseScopeMode),
     });
   });
 }

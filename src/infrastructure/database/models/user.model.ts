@@ -1,6 +1,8 @@
 import { model, Schema, Types } from "mongoose";
 import { SupportedLanguage } from "../../../bot/i18n/language";
 
+export type ExpenseScopeMode = "separate" | "personal_only" | "family_only";
+
 export interface UserDocument {
   _id: Types.ObjectId;
   telegramId: number;
@@ -11,6 +13,7 @@ export interface UserDocument {
   updatedAt: Date;
   language?: SupportedLanguage;
   currency?: string;
+  expenseScopeMode: ExpenseScopeMode;
 }
 
 const userSchema = new Schema<UserDocument>(
@@ -33,6 +36,12 @@ const userSchema = new Schema<UserDocument>(
       type: String,
       required: false,
       trim: true,
+    },
+    expenseScopeMode: {
+      type: String,
+      enum: ["separate", "personal_only", "family_only"],
+      default: "separate",
+      required: true,
     },
   },
   {

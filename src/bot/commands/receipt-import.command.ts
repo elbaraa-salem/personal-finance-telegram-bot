@@ -8,6 +8,7 @@ import {
   ReceiptExtractor,
 } from "../../infrastructure/ai/receipt-extractor";
 import { TransactionScope } from "../../infrastructure/database/models/transaction.model";
+import { ExpenseScopeMode } from "../../infrastructure/database/models/user.model";
 import { BotContext } from "../context";
 import { defaultLanguage, SupportedLanguage } from "../i18n/language";
 import {
@@ -68,6 +69,19 @@ async function getLanguage(
   }
 
   return userService.getUserLanguage(telegramUser.id);
+}
+
+async function getExpenseScopeMode(
+  ctx: BotContext,
+  userService: UserService
+): Promise<ExpenseScopeMode> {
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    return "separate";
+  }
+
+  return userService.getExpenseScopeMode(telegramUser.id);
 }
 
 function parseReceiptDate(dateText: string | undefined): Date | undefined {
@@ -202,6 +216,18 @@ function getLargestPhotoFileId(ctx: BotContext): string | null {
   return photos[photos.length - 1]?.file_id ?? null;
 }
 
+function getForcedScopeFromUserMode(mode: ExpenseScopeMode): TransactionScope | undefined {
+  if (mode === "personal_only") {
+    return "personal";
+  }
+
+  if (mode === "family_only") {
+    return "family";
+  }
+
+  return undefined;
+}
+
 async function saveReceiptTransactions(
   ctx: BotContext,
   transactionService: TransactionService,
@@ -212,21 +238,24 @@ async function saveReceiptTransactions(
 
   if (!telegramUser || !pendingReceiptImport?.scope) {
     const language = await getLanguage(ctx, userService);
+    const expenseScopeMode = await getExpenseScopeMode(ctx, userService);
     await ctx.reply(getMessage(language, "noSession"), {
-      reply_markup: createMainMenuKeyboard(language),
+      reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
     });
     return;
   }
 
   const receipt = pendingReceiptImport.receipt;
   const currency = await userService.getUserCurrency(telegramUser.id);
+  const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
+  const scope = getForcedScopeFromUserMode(expenseScopeMode) ?? pendingReceiptImport.scope;
   const transactionDate = parseReceiptDate(receipt.date);
 
   await transactionService.addTransactions(
     receipt.items.map((item: ExtractedReceiptItem) => ({
       telegramId: telegramUser.id,
       type: "expense",
-      scope: pendingReceiptImport.scope!,
+      scope: scope!,
       amount: item.amount,
       category: item.category || "receipt",
       note: receipt.merchant ? `${receipt.merchant} | ${item.name}` : item.name,
@@ -241,7 +270,7 @@ async function saveReceiptTransactions(
 
   const language = await userService.getUserLanguage(telegramUser.id);
   await ctx.reply(`${getMessage(language, "saved")}\n${receipt.items.length} × ${currency}`, {
-    reply_markup: createMainMenuKeyboard(language),
+    reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
   });
 }
 
@@ -287,8 +316,9 @@ export function registerReceiptImportCommand(
     } catch (error) {
       console.error("❌ Receipt import error:", error);
       ctx.session.pendingReceiptImport = null;
+      const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
       await ctx.reply(getMessage(language, "failed"), {
-        reply_markup: createMainMenuKeyboard(language),
+        reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
       });
     }
   });
@@ -300,10 +330,11 @@ export function registerReceiptImportCommand(
 
       const language = await getLanguage(ctx, userService);
       const pendingReceiptImport = ctx.session.pendingReceiptImport;
+      const expenseScopeMode = await getExpenseScopeMode(ctx, userService);
 
       if (!pendingReceiptImport) {
         await ctx.reply(getMessage(language, "noSession"), {
-          reply_markup: createMainMenuKeyboard(language),
+          reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
         });
         return;
       }
@@ -338,10 +369,11 @@ export function registerReceiptImportCommand(
 
     const language = await getLanguage(ctx, userService);
     const pendingReceiptImport = ctx.session.pendingReceiptImport;
+    const expenseScopeMode = await getExpenseScopeMode(ctx, userService);
 
     if (!pendingReceiptImport) {
       await ctx.reply(getMessage(language, "noSession"), {
-        reply_markup: createMainMenuKeyboard(language),
+        reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
       });
       return;
     }
@@ -353,11 +385,12 @@ export function registerReceiptImportCommand(
     await ctx.answerCallbackQuery();
 
     const language = await getLanguage(ctx, userService);
+    const expenseScopeMode = await getExpenseScopeMode(ctx, userService);
     ctx.session.pendingReceiptImport = null;
     ctx.session.pendingTransaction = null;
     ctx.session.awaitingScopeConfirmation = null;
     await ctx.reply(getMessage(language, "cancelled"), {
-      reply_markup: createMainMenuKeyboard(language),
+      reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
     });
   });
 

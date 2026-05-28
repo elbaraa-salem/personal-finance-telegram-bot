@@ -21,6 +21,7 @@ export type ReceiptImportPreview = {
   receiptImport: ReceiptImportDocument;
   normalizedReceipt: NormalizedReceipt;
   aiTransactions: AiReceiptTransaction[];
+  selectedScope: TransactionScope;
   groupedTotalDiffers: boolean;
 };
 
@@ -31,6 +32,10 @@ export type ConfirmReceiptImportResult =
     }
   | {
       status: "already_confirmed";
+      transactions: TransactionDocument[];
+    }
+  | {
+      status: "cancelled";
       transactions: TransactionDocument[];
     };
 
@@ -93,14 +98,15 @@ export class ReceiptImportService {
         throw new Error(aiResult.reason);
       }
 
-      const finalTransactions = aiResult.transactions.map((transaction) => ({
-        ...transaction,
-        ...(options.forcedScope ? { scope: options.forcedScope } : {}),
-      }));
+      const selectedScope = options.forcedScope ?? this.getInitialScope(aiResult.transactions);
+      const finalTransactions = aiResult.transactions.map((transaction) =>
+        this.toValidatedAiTransaction(transaction, selectedScope)
+      );
 
       const updatedReceiptImport = await this.receiptImportRepository.setAiTransactions(
         receiptImport._id,
-        finalTransactions
+        finalTransactions,
+        selectedScope
       );
 
       if (!updatedReceiptImport) {
@@ -111,6 +117,7 @@ export class ReceiptImportService {
         receiptImport: updatedReceiptImport,
         normalizedReceipt,
         aiTransactions: finalTransactions,
+        selectedScope,
         groupedTotalDiffers: this.groupedTotalDiffers(
           normalizedReceipt.fiscal.totalSum,
           finalTransactions
@@ -130,7 +137,8 @@ export class ReceiptImportService {
 
   async confirmReceiptImport(
     telegramId: number,
-    receiptImportId: string
+    receiptImportId: string,
+    options: ImportReceiptOptions = {}
   ): Promise<ConfirmReceiptImportResult> {
     const receiptImport = await this.getOwnedReceiptImport(telegramId, receiptImportId);
 
@@ -141,11 +149,24 @@ export class ReceiptImportService {
       };
     }
 
+    if (receiptImport.status === "cancelled") {
+      return {
+        status: "cancelled",
+        transactions: [],
+      };
+    }
+
     if (receiptImport.status !== "ai_grouped") {
       throw new Error("Receipt import is not ready for confirmation.");
     }
 
-    const aiTransactions = receiptImport.aiTransactions ?? [];
+    const selectedScope =
+      options.forcedScope ??
+      receiptImport.selectedScope ??
+      this.getInitialScope(receiptImport.aiTransactions ?? []);
+    const aiTransactions = (receiptImport.aiTransactions ?? []).map((transaction) =>
+      this.toValidatedAiTransaction(transaction, selectedScope)
+    );
 
     if (aiTransactions.length === 0) {
       throw new Error("Receipt import has no transactions to save.");
@@ -215,6 +236,55 @@ export class ReceiptImportService {
     return updatedReceiptImport;
   }
 
+  async updateReceiptImportScope(
+    telegramId: number,
+    receiptImportId: string,
+    scope: TransactionScope
+  ): Promise<ReceiptImportPreview> {
+    const receiptImport = await this.getOwnedReceiptImport(telegramId, receiptImportId);
+
+    if (receiptImport.status === "confirmed") {
+      throw new Error("Receipt import is already confirmed.");
+    }
+
+    if (receiptImport.status === "cancelled") {
+      throw new Error("Receipt import is already cancelled.");
+    }
+
+    if (receiptImport.status !== "ai_grouped") {
+      throw new Error("Receipt import is not ready for scope selection.");
+    }
+
+    const aiTransactions = (receiptImport.aiTransactions ?? []).map((transaction) =>
+      this.toValidatedAiTransaction(transaction, scope)
+    );
+
+    const updatedReceiptImport = await this.receiptImportRepository.setSelectedScopeAndAiTransactions(
+      receiptImport._id,
+      scope,
+      aiTransactions
+    );
+
+    if (!updatedReceiptImport) {
+      throw new Error("Receipt import disappeared while updating scope.");
+    }
+
+    const updatedAiTransactions = (updatedReceiptImport.aiTransactions ?? []).map((transaction) =>
+      this.toValidatedAiTransaction(transaction, scope)
+    );
+
+    return {
+      receiptImport: updatedReceiptImport,
+      normalizedReceipt: this.toNormalizedReceipt(updatedReceiptImport),
+      aiTransactions: updatedAiTransactions,
+      selectedScope: scope,
+      groupedTotalDiffers: this.groupedTotalDiffers(
+        updatedReceiptImport.fiscal?.totalSum ?? 0,
+        updatedAiTransactions
+      ),
+    };
+  }
+
   private async getOwnedReceiptImport(
     telegramId: number,
     receiptImportId: string
@@ -245,5 +315,81 @@ export class ReceiptImportService {
     const groupedTotal = transactions.reduce((sum, transaction) => sum + transaction.amount, 0);
 
     return Math.abs(groupedTotal - receiptTotal) > 0.01;
+  }
+
+  private getInitialScope(transactions: AiReceiptTransaction[]): TransactionScope {
+    const personalCount = transactions.filter((transaction) => transaction.scope === "personal").length;
+    const familyCount = transactions.filter((transaction) => transaction.scope === "family").length;
+
+    return personalCount > familyCount ? "personal" : "family";
+  }
+
+  private toValidatedAiTransaction(
+    transaction: AiReceiptTransaction,
+    scopeOverride?: TransactionScope
+  ): AiReceiptTransaction {
+    const scope = scopeOverride ?? transaction.scope;
+    const amount = Number(transaction.amount);
+    const category = typeof transaction.category === "string" ? transaction.category.trim() : "";
+    const note = typeof transaction.note === "string" ? transaction.note.trim() : "";
+    const itemNames = Array.isArray(transaction.itemNames)
+      ? transaction.itemNames.filter((itemName): itemName is string => typeof itemName === "string" && itemName.trim().length > 0)
+      : [];
+
+    if (transaction.type !== "expense") {
+      throw new Error("Receipt AI transaction type is invalid.");
+    }
+
+    if (scope !== "personal" && scope !== "family") {
+      throw new Error("Receipt AI transaction scope is invalid.");
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("Receipt AI transaction amount is invalid.");
+    }
+
+    if (!category) {
+      throw new Error("Receipt AI transaction category is missing.");
+    }
+
+    return {
+      type: "expense",
+      scope,
+      amount,
+      category,
+      note,
+      itemNames,
+    };
+  }
+
+  private toNormalizedReceipt(receiptImport: ReceiptImportDocument): NormalizedReceipt {
+    const dateTime = receiptImport.fiscal?.dateTime;
+    const totalSum = receiptImport.fiscal?.totalSum;
+
+    if (!dateTime || totalSum === undefined) {
+      throw new Error("Receipt import fiscal data is incomplete.");
+    }
+
+    return {
+      fiscal: {
+        ...(receiptImport.fiscal?.fn ? { fn: receiptImport.fiscal.fn } : {}),
+        ...(receiptImport.fiscal?.fd ? { fd: receiptImport.fiscal.fd } : {}),
+        ...(receiptImport.fiscal?.fp ? { fp: receiptImport.fiscal.fp } : {}),
+        dateTime,
+        totalSum,
+      },
+      seller: {
+        ...(receiptImport.seller?.name ? { name: receiptImport.seller.name } : {}),
+        ...(receiptImport.seller?.inn ? { inn: receiptImport.seller.inn } : {}),
+        ...(receiptImport.seller?.retailPlace ? { retailPlace: receiptImport.seller.retailPlace } : {}),
+        ...(receiptImport.seller?.address ? { address: receiptImport.seller.address } : {}),
+      },
+      items: receiptImport.items.map((item) => ({
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        sum: item.sum,
+      })),
+    };
   }
 }

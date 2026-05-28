@@ -1,4 +1,5 @@
 import { UserDocument, UserModel } from "../database/models/user.model";
+import { ExpenseScopeMode } from "../database/models/user.model";
 import { SupportedLanguage } from "../../bot/i18n/language";
 
 type CreateUserData = {
@@ -26,7 +27,7 @@ export class UserRepository {
         return UserModel.findOneAndUpdate(
             { telegramId },
             { $set: { language } },
-            { new: true }
+            { returnDocument: "after" }
         ).exec();
     }
 
@@ -39,5 +40,16 @@ export class UserRepository {
         { $set: { currency } },
         { returnDocument: "after" }
     ).exec();
+    }
+
+    async updateExpenseScopeModeByTelegramId(
+        telegramId: number,
+        expenseScopeMode: ExpenseScopeMode
+    ): Promise<UserDocument | null> {
+        return UserModel.findOneAndUpdate(
+            { telegramId },
+            { $set: { expenseScopeMode } },
+            { returnDocument: "after" }
+        ).exec();
     }
 }

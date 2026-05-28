@@ -39,10 +39,19 @@ export function formatReceiptImportPreview(
   return (
     `${messages.receipt.receiptFound}${seller ? `: ${seller}` : ""}\n` +
     `${messages.receipt.receiptDate}: ${formatDate(preview.normalizedReceipt.fiscal.dateTime)}\n` +
-    `${messages.receipt.receiptTotal}: ${formatAmount(preview.normalizedReceipt.fiscal.totalSum, currency)}\n\n` +
+    `${messages.receipt.receiptTotal}: ${formatAmount(preview.normalizedReceipt.fiscal.totalSum, currency)}\n` +
+    `${messages.receipt.receiptCurrentScope}: ${formatScope(preview.selectedScope, language)}\n\n` +
     `${messages.receipt.receiptTransactionsToCreate}:\n` +
     `${transactions}` +
     warning +
-    `\n\n${messages.receipt.receiptSaveQuestion}`
+    `\n\n${messages.receipt.receiptChooseScopeAndConfirmAmount}`
   );
+}
+
+function formatScope(scope: "personal" | "family", language: SupportedLanguage): string {
+  const messages = getMessages(language);
+
+  return scope === "personal"
+    ? messages.transaction.scopePersonal
+    : messages.transaction.scopeFamily;
 }

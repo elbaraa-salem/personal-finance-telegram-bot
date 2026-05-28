@@ -5,6 +5,7 @@ import {
   SupportedLanguage,
 } from "../i18n/language";
 import { getMessages, MenuMessages } from "../i18n/translations";
+import { ExpenseScopeMode } from "../../infrastructure/database/models/user.model";
 
 type MenuButtonKey = keyof MenuMessages;
 
@@ -16,18 +17,30 @@ const MAIN_MENU_LAYOUT: MenuButtonKey[][] = [
   ["settings", "help"],
 ];
 
+const SINGLE_EXPENSE_MENU_LAYOUT: MenuButtonKey[][] = [
+  ["reportDay"],
+  [ "history", "moreReports"],
+  [ "addExpense", "addIncome"],
+  [ "settings", "help" ],
+];
+
 export function createMainMenuKeyboard(
-  language: SupportedLanguage = defaultLanguage
+  language: SupportedLanguage = defaultLanguage,
+  expenseScopeMode: ExpenseScopeMode = "separate"
 ): Keyboard {
   const menu = getMessages(language).menu;
   const keyboard = new Keyboard();
+  const layout =
+    expenseScopeMode === "separate"
+      ? MAIN_MENU_LAYOUT
+      : SINGLE_EXPENSE_MENU_LAYOUT;
 
-  MAIN_MENU_LAYOUT.forEach((row, rowIndex) => {
+  layout.forEach((row, rowIndex) => {
     row.forEach((key) => {
       keyboard.text(menu[key]);
     });
 
-    if (rowIndex < MAIN_MENU_LAYOUT.length - 1) {
+    if (rowIndex < layout.length - 1) {
       keyboard.row();
     }
   });
