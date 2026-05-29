@@ -1,5 +1,8 @@
 import { config } from "../../config/env";
 import { BotContext } from "../context";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 export async function downloadTelegramFileAsBuffer(
   ctx: BotContext,
@@ -20,4 +23,18 @@ export async function downloadTelegramFileAsBuffer(
   }
 
   return Buffer.from(await response.arrayBuffer());
+}
+
+export async function downloadTelegramFileToTempFile(
+  ctx: BotContext,
+  fileId: string,
+  fileExtension = ".ogg"
+): Promise<string> {
+  const buffer = await downloadTelegramFileAsBuffer(ctx, fileId);
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "telegram-voice-"));
+  const filePath = path.join(tempDirectory, `voice${fileExtension}`);
+
+  await writeFile(filePath, buffer);
+
+  return filePath;
 }

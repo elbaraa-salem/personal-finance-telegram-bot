@@ -165,6 +165,13 @@ type CommonMessages = {
   unexpectedError: string;
 };
 
+type VoiceMessages = {
+  voiceDisabled: string;
+  voiceTranscribing: string;
+  voiceTranscriptionFailed: string;
+  voiceRecognizedText: (text: string) => string;
+};
+
 type CurrencyMessages = {
   choose: string;
   selected: (currency: string) => string;
@@ -208,6 +215,7 @@ type Messages = {
   transactionFlow: TransactionFlowMessages;
   naturalTransaction: NaturalTransactionMessages;
   receipt: ReceiptMessages;
+  voice: VoiceMessages;
   delete: DeleteMessages;
   manualTransaction: ManualTransactionMessages;
   currency: CurrencyMessages;
@@ -390,6 +398,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
         qrImageDecodeFailed: "لم أستطع قراءة كود QR من الصورة. حاول تصوير الكود بشكل أوضح أو أرسل نص QR.",
         qrImageUnsupportedFile: "هذا الملف ليس صورة مدعومة.",
         receiptExpenseOnly: "الشيكات مدعومة للمصروفات فقط. ألغِ وضع الدخل أو اختر نوع مصروف.",
+    },
+    voice: {
+        voiceDisabled: "الإدخال الصوتي غير مفعّل حاليًا.",
+        voiceTranscribing: "جاري تحويل الصوت إلى نص...",
+        voiceTranscriptionFailed: "لم أستطع فهم الرسالة الصوتية. حاول تسجيلها بوضوح أكثر.",
+        voiceRecognizedText: (text: string) => `فهمت النص التالي:\n${text}`,
     },
     delete: {
         confirmation: "هل أنت متأكد أنك تريد حذف آخر عملية؟",
@@ -716,6 +730,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
         qrImageUnsupportedFile: "Этот файл не является поддерживаемым изображением.",
         receiptExpenseOnly: "Чеки поддерживаются только для расходов. Отмените режим дохода или выберите тип расхода.",
     },
+    voice: {
+        voiceDisabled: "Голосовой ввод сейчас отключён.",
+        voiceTranscribing: "Распознаю голосовое сообщение...",
+        voiceTranscriptionFailed: "Не удалось распознать голосовое сообщение. Попробуйте записать его чётче.",
+        voiceRecognizedText: (text: string) => `Я распознал:\n${text}`,
+    },
 
     delete: {
         confirmation: "Вы уверены, что хотите удалить последнюю операцию?",
@@ -1038,6 +1058,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
         qrImageDecodeFailed: "I could not read a QR code from the image. Try taking a clearer photo of the QR code or send the QR text.",
         qrImageUnsupportedFile: "This file is not a supported image.",
         receiptExpenseOnly: "Receipts are supported only for expenses. Please cancel income mode or choose an expense type.",
+    },
+    voice: {
+        voiceDisabled: "Voice input is currently disabled.",
+        voiceTranscribing: "Transcribing voice message...",
+        voiceTranscriptionFailed: "I couldn't understand the voice message. Try recording it more clearly.",
+        voiceRecognizedText: (text: string) => `I recognized:\n${text}`,
     },
     delete: {
         confirmation: "Are you sure you want to delete the last transaction?",

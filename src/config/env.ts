@@ -29,6 +29,11 @@ export const config = {
   receiptProvider: process.env.RECEIPT_PROVIDER,
   proverkachekaToken: process.env.PROVERKACHEKA_TOKEN,
   proverkachekaBaseUrl: process.env.PROVERKACHEKA_BASE_URL ?? "https://proverkacheka.com/api/v1",
+  voiceInputEnabled: process.env.VOICE_INPUT_ENABLED === "true",
+  voiceTranscribeModel: process.env.VOICE_TRANSCRIBE_MODEL ?? "medium",
+  voiceTranscribeDevice: process.env.VOICE_TRANSCRIBE_DEVICE ?? "cpu",
+  voiceTranscribeComputeType: process.env.VOICE_TRANSCRIBE_COMPUTE_TYPE ?? "int8",
+  voiceTranscribePython: process.env.VOICE_TRANSCRIBE_PYTHON ?? "python3",
 };
 
 if (config.useProxy && !config.socksProxyUrl) {

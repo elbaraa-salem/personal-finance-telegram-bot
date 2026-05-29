@@ -1,9 +1,13 @@
 import { Bot, GrammyError } from "grammy";
+import path from "node:path";
+import { rm } from "node:fs/promises";
 import { AiTransactionParserService } from "../../application/services/ai-transaction-parser.service";
 import { ReportService } from "../../application/services/report.service";
 import { getCurrentDateStringInTimezone } from "../../application/services/timezone-date.service";
 import { ReceiptImportService } from "../../application/services/receipt-import.service";
 import { TransactionService } from "../../application/services/transaction.service";
+import { VoiceTranscriptionService } from "../../application/services/voice-transcription.service";
+import { config } from "../../config/env";
 import { TransactionScope, TransactionType } from "../../infrastructure/database/models/transaction.model";
 import { ExpenseScopeMode } from "../../infrastructure/database/models/user.model";
 import { BotContext } from "../context";
@@ -31,7 +35,10 @@ import { createReportExcelKeyboard } from "../keyboards/report-excel.keyboard";
 import { formatReceiptImportPreview } from "../formatters/receipt-import.formatter";
 import { formatReport } from "../formatters/report.formatter";
 import { decodeReceiptQrFromImageBuffer } from "../../infrastructure/receipt/receipt-qr-image-decoder";
-import { downloadTelegramFileAsBuffer } from "../utils/download-telegram-file";
+import {
+  downloadTelegramFileAsBuffer,
+  downloadTelegramFileToTempFile,
+} from "../utils/download-telegram-file";
 
 type EditMessageTextOptions = Parameters<BotContext["editMessageText"]>[1];
 
@@ -606,13 +613,129 @@ async function handleCustomReportDateInput(
   });
 }
 
+async function handleIncomingTransactionText(
+  ctx: BotContext,
+  text: string,
+  aiTransactionParser: AiTransactionParserService,
+  transactionService: TransactionService,
+  userService: UserService,
+  receiptImportService: ReceiptImportService,
+  reportService: ReportService,
+  options: {
+    passThroughShortcutTransactions?: boolean;
+  } = {}
+): Promise<boolean> {
+  const pendingTransaction = ctx.session.pendingTransaction;
+
+  if (ctx.session.pendingCustomReport) {
+    try {
+      await handleCustomReportDateInput(ctx, text, reportService, userService);
+    } catch (error) {
+      console.error("❌ Custom report error:", error);
+      const language = await getLanguageForContext(ctx, userService);
+      await ctx.reply(getMessages(language).common.unexpectedError);
+    }
+    return true;
+  }
+
+  if (!pendingTransaction) {
+    if (
+      isCommandText(text) ||
+      isMainMenuButtonText(text) ||
+      isCancelFlowButtonText(text) ||
+      (options.passThroughShortcutTransactions && isShortcutTransactionText(text))
+    ) {
+      return false;
+    }
+
+    if (looksLikeReceiptQrRaw(text)) {
+      const telegramUser = ctx.from;
+
+      if (!telegramUser) {
+        await ctx.reply(getMessages().common.readUserError);
+        return true;
+      }
+
+      const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
+      const modeScope = getForcedScopeFromUserMode(expenseScopeMode);
+
+      await handleReceiptQrRawText(ctx, text, receiptImportService, userService, {
+        ...(modeScope ? { forcedScope: modeScope } : {}),
+        allowScopeSelection: expenseScopeMode === "separate",
+      });
+      return true;
+    }
+
+    await parseAndHandleNaturalTransaction(
+      ctx,
+      text,
+      aiTransactionParser,
+      transactionService,
+      userService
+    );
+    return true;
+  }
+
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    ctx.session.pendingTransaction = null;
+    await ctx.reply(getMessages().common.readUserError);
+    return true;
+  }
+
+  const language = await userService.getUserLanguage(telegramUser.id);
+  const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
+  const modeScope = getForcedScopeFromUserMode(expenseScopeMode);
+
+  if (looksLikeReceiptQrRaw(text)) {
+    if (pendingTransaction.type === "income") {
+      await ctx.reply(getMessages(language).receipt.receiptExpenseOnly, {
+        reply_markup: createCancelFlowKeyboard(language),
+      });
+      return true;
+    }
+
+    const forcedReceiptScope = modeScope ?? pendingTransaction.scope;
+
+    await handleReceiptQrRawText(ctx, text, receiptImportService, userService, {
+      ...(forcedReceiptScope ? { forcedScope: forcedReceiptScope } : {}),
+      clearPendingTransactionOnSuccess: true,
+      allowScopeSelection: expenseScopeMode === "separate",
+    });
+    return true;
+  }
+
+  if (text === "/cancel" || isCancelFlowButtonText(text)) {
+    await cancelTransactionFlow(ctx, userService);
+    return true;
+  }
+
+  if (shouldBlockDuringTransactionFlow(text)) {
+    await replyWithActiveFlowWarning(ctx, language);
+    return true;
+  }
+
+  await parseAndHandleNaturalTransaction(
+    ctx,
+    text,
+    aiTransactionParser,
+    transactionService,
+    userService,
+    pendingTransaction.type,
+    pendingTransaction.scope
+  );
+  return true;
+}
+
 export function registerTransactionFlowCommand(
   bot: Bot<BotContext>,
   transactionService: TransactionService,
   userService: UserService,
   aiTransactionParser: AiTransactionParserService,
   receiptImportService: ReceiptImportService,
-  reportService: ReportService
+  reportService: ReportService,
+  voiceTranscriptionService = new VoiceTranscriptionService()
 ): void {
   bot.hears(getMainMenuButtonTexts("addIncome"), async (ctx) => {
     await startTransactionFlow(ctx, "income", userService);
@@ -951,108 +1074,79 @@ export function registerTransactionFlowCommand(
     );
   });
 
-  bot.on("message:text", async (ctx, next) => {
-    const pendingTransaction = ctx.session.pendingTransaction;
-    const text = ctx.message.text.trim();
+  bot.on("message:voice", async (ctx) => {
+    const telegramUser = ctx.from;
+    const language = telegramUser
+      ? await userService.getUserLanguage(telegramUser.id)
+      : defaultLanguage;
+    const messages = getMessages(language);
 
-    if (ctx.session.pendingCustomReport) {
-      try {
-        await handleCustomReportDateInput(ctx, text, reportService, userService);
-      } catch (error) {
-        console.error("❌ Custom report error:", error);
-        const language = await getLanguageForContext(ctx, userService);
-        await ctx.reply(getMessages(language).common.unexpectedError);
-      }
+    if (!config.voiceInputEnabled) {
+      await ctx.reply(messages.voice.voiceDisabled);
       return;
     }
 
-    if (!pendingTransaction) {
-      if (
-        isCommandText(text) ||
-        isMainMenuButtonText(text) ||
-        isCancelFlowButtonText(text) ||
-        isShortcutTransactionText(text)
-      ) {
-        await next();
-        return;
-      }
+    if (ctx.message.voice.duration > 60) {
+      await ctx.reply(messages.voice.voiceTranscriptionFailed);
+      return;
+    }
 
-      if (looksLikeReceiptQrRaw(text)) {
-        const telegramUser = ctx.from;
+    await ctx.reply(messages.voice.voiceTranscribing);
 
-        if (!telegramUser) {
-          await ctx.reply(getMessages().common.readUserError);
-          return;
-        }
+    let audioFilePath: string | null = null;
 
-        const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
-        const modeScope = getForcedScopeFromUserMode(expenseScopeMode);
-
-        await handleReceiptQrRawText(ctx, text, receiptImportService, userService, {
-          ...(modeScope ? { forcedScope: modeScope } : {}),
-          allowScopeSelection: expenseScopeMode === "separate",
-        });
-        return;
-      }
-
-      await parseAndHandleNaturalTransaction(
+    try {
+      audioFilePath = await downloadTelegramFileToTempFile(
         ctx,
-        text,
+        ctx.message.voice.file_id,
+        ".ogg"
+      );
+      const transcription = await voiceTranscriptionService.transcribe(audioFilePath);
+      const recognizedText = transcription.text.trim();
+
+      if (!recognizedText) {
+        await ctx.reply(messages.voice.voiceTranscriptionFailed);
+        return;
+      }
+
+      await ctx.reply(messages.voice.voiceRecognizedText(recognizedText));
+
+      await handleIncomingTransactionText(
+        ctx,
+        recognizedText,
         aiTransactionParser,
         transactionService,
-        userService
+        userService,
+        receiptImportService,
+        reportService
       );
-      return;
-    }
-
-    const telegramUser = ctx.from;
-
-    if (!telegramUser) {
-      ctx.session.pendingTransaction = null;
-      await ctx.reply(getMessages().common.readUserError);
-      return;
-    }
-
-    const language = await userService.getUserLanguage(telegramUser.id);
-    const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
-    const modeScope = getForcedScopeFromUserMode(expenseScopeMode);
-
-    if (looksLikeReceiptQrRaw(text)) {
-      if (pendingTransaction.type === "income") {
-        await ctx.reply(getMessages(language).receipt.receiptExpenseOnly, {
-          reply_markup: createCancelFlowKeyboard(language),
-        });
-        return;
+    } catch (error) {
+      console.error("❌ Voice message handling error:", error);
+      await ctx.reply(messages.voice.voiceTranscriptionFailed);
+    } finally {
+      if (audioFilePath) {
+        await rm(path.dirname(audioFilePath), { recursive: true, force: true }).catch(
+          () => undefined
+        );
       }
-
-      const forcedReceiptScope = modeScope ?? pendingTransaction.scope;
-
-      await handleReceiptQrRawText(ctx, text, receiptImportService, userService, {
-        ...(forcedReceiptScope ? { forcedScope: forcedReceiptScope } : {}),
-        clearPendingTransactionOnSuccess: true,
-        allowScopeSelection: expenseScopeMode === "separate",
-      });
-      return;
     }
+  });
 
-    if (text === "/cancel" || isCancelFlowButtonText(text)) {
-      await cancelTransactionFlow(ctx, userService);
-      return;
-    }
-
-    if (shouldBlockDuringTransactionFlow(text)) {
-      await replyWithActiveFlowWarning(ctx, language);
-      return;
-    }
-
-    await parseAndHandleNaturalTransaction(
+  bot.on("message:text", async (ctx, next) => {
+    const text = ctx.message.text.trim();
+    const handled = await handleIncomingTransactionText(
       ctx,
       text,
       aiTransactionParser,
       transactionService,
       userService,
-      pendingTransaction.type,
-      pendingTransaction.scope
+      receiptImportService,
+      reportService,
+      { passThroughShortcutTransactions: true }
     );
+
+    if (!handled) {
+      await next();
+    }
   });
 }
