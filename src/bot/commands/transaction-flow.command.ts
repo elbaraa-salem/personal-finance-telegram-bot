@@ -159,6 +159,25 @@ function isCommandText(text: string): boolean {
   return text.startsWith("/");
 }
 
+function isLocalizedCancelText(text: string): boolean {
+  const normalizedText = text.trim().toLowerCase();
+
+  return normalizedText === "cancel" ||
+    normalizedText === "отмена" ||
+    normalizedText === "إلغاء";
+}
+
+function isMenuActionOrCommandText(text: string): boolean {
+  return isCommandText(text) || isMainMenuButtonText(text);
+}
+
+function clearPendingFlows(ctx: BotContext): void {
+  ctx.session.pendingCustomReport = null;
+  ctx.session.pendingTransaction = null;
+  ctx.session.pendingCurrencyInput = false;
+  ctx.session.pendingReceiptImport = null;
+}
+
 function shouldBlockDuringTransactionFlow(text: string): boolean {
   if (isCancelFlowButtonText(text)) {
     return false;
@@ -534,6 +553,10 @@ function parseCustomReportDate(text: string): Date | null {
   return isValidDate ? date : null;
 }
 
+function looksLikeCustomReportDateInput(text: string): boolean {
+  return /^\d{1,2}[-./]\d{1,2}[-./]\d{4}$/.test(text.trim());
+}
+
 function addUtcDays(date: Date, days: number): Date {
   return new Date(Date.UTC(
     date.getUTCFullYear(),
@@ -559,16 +582,20 @@ async function handleCustomReportDateInput(
   const currency = await userService.getUserCurrency(telegramUser.id);
   const messages = getMessages(language);
 
-  if (text === "/cancel" || isCancelFlowButtonText(text)) {
+  if (text === "/cancel" || isCancelFlowButtonText(text) || isLocalizedCancelText(text)) {
     ctx.session.pendingCustomReport = null;
-    await ctx.reply(messages.transactionFlow.cancelled);
+    await ctx.reply(messages.common.actionCancelled);
     return;
   }
 
   const parsedDate = parseCustomReportDate(text);
 
   if (!parsedDate) {
-    await ctx.reply(messages.report.invalidDate);
+    await ctx.reply(
+      looksLikeCustomReportDateInput(text)
+        ? messages.report.invalidDate
+        : messages.report.waitingForDateInput
+    );
     return;
   }
 
@@ -628,6 +655,11 @@ async function handleIncomingTransactionText(
   const pendingTransaction = ctx.session.pendingTransaction;
 
   if (ctx.session.pendingCustomReport) {
+    if (isMenuActionOrCommandText(text)) {
+      clearPendingFlows(ctx);
+      return false;
+    }
+
     try {
       await handleCustomReportDateInput(ctx, text, reportService, userService);
     } catch (error) {
@@ -1105,6 +1137,11 @@ export function registerTransactionFlowCommand(
       const recognizedText = transcription.text.trim();
 
       if (!recognizedText) {
+        console.error("❌ Voice transcription produced no text.", {
+          provider: transcription.provider,
+          language: transcription.language,
+          duration: transcription.duration,
+        });
         await ctx.reply(messages.voice.voiceTranscriptionFailed);
         return;
       }

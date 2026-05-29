@@ -3,6 +3,7 @@ import {
   TransactionScope,
   TransactionType,
 } from "../../infrastructure/database/models/transaction.model";
+import { extractRelativeDateFromText } from "./relative-date-parser.service";
 
 type MissingField = "amount" | "type" | "category" | "date" | "scope";
 
@@ -48,6 +49,14 @@ type OpenRouterResponse = {
     };
   }>;
 };
+
+type GroqChatResponse = OpenRouterResponse & {
+  error?: unknown;
+};
+
+function truncateForLog(value: string, maxLength = 4000): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
 
 export class OpenRouterTextProvider implements AiTextProvider {
   constructor(
@@ -95,6 +104,69 @@ export class OpenRouterTextProvider implements AiTextProvider {
 
     if (!content) {
       throw new Error("AI provider returned an empty response.");
+    }
+
+    return content;
+  }
+}
+
+export class GroqTextProvider implements AiTextProvider {
+  constructor(
+    private readonly apiKey: string,
+    private readonly model: string
+  ) {}
+
+  async complete(prompt: string): Promise<string> {
+    const response = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          temperature: 0,
+          response_format: {
+            type: "json_object",
+          },
+        }),
+      }
+    );
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      console.error(`Groq AI provider request failed: HTTP ${response.status}`);
+      console.error(`Groq AI provider response body:\n${truncateForLog(responseText)}`);
+      throw new Error("Groq AI provider request failed.");
+    }
+
+    let data: GroqChatResponse;
+
+    try {
+      data = JSON.parse(responseText) as GroqChatResponse;
+    } catch (error) {
+      console.error("Groq AI provider JSON parse error:", error);
+      console.error(`Groq AI provider raw response:\n${truncateForLog(responseText)}`);
+      throw new Error("Groq AI provider returned invalid JSON.");
+    }
+
+    if (data.error) {
+      console.error("Groq AI provider returned an error:", data.error);
+      throw new Error("Groq AI provider returned an error.");
+    }
+
+    const content = data.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new Error("Groq AI provider returned an empty response.");
     }
 
     return content;
@@ -375,7 +447,8 @@ function validateParseResult(value: unknown): AiTransactionParseResult {
 function applyDeterministicDate(
   result: AiTransactionParseResult,
   originalText: string,
-  currentDate: string
+  currentDate: string,
+  timezone: string
 ): AiTransactionParseResult {
   if (result.status !== "transaction") {
     return result;
@@ -383,21 +456,33 @@ function applyDeterministicDate(
 
   const explicitDate = extractExplicitDateFromText(originalText);
 
-  if (!explicitDate) {
+  if (explicitDate) {
     return {
       ...result,
-      transactionDate: result.transactionDate || currentDate,
+      transactionDate: formatDateOnly(explicitDate.date),
+      category: removeDateText(result.category, explicitDate.matchedText) || result.category,
+      note: removeDateText(result.note, explicitDate.matchedText),
     };
   }
 
-  const cleanedNote = removeDateText(result.note, explicitDate.matchedText);
-  const cleanedCategory = removeDateText(result.category, explicitDate.matchedText);
+  const relativeDate = extractRelativeDateFromText(
+    originalText,
+    new Date(`${currentDate}T00:00:00.000Z`),
+    timezone
+  );
+
+  if (relativeDate) {
+    return {
+      ...result,
+      transactionDate: formatDateOnly(relativeDate.date),
+      category: removeDateText(result.category, relativeDate.matchedText) || result.category,
+      note: removeDateText(result.note, relativeDate.matchedText),
+    };
+  }
 
   return {
     ...result,
-    transactionDate: formatDateOnly(explicitDate.date),
-    category: cleanedCategory || result.category,
-    note: cleanedNote,
+    transactionDate: result.transactionDate || currentDate,
   };
 }
 
@@ -448,8 +533,8 @@ function createPrompt(text: string, options: ParseOptions): string {
 You are a strict financial transaction parser for a Telegram personal finance bot.
 Return JSON only. No markdown. No explanation.
 
-Current date: ${options.currentDate}
-Timezone: ${options.timezone}
+Current date in the user's timezone: ${options.currentDate}
+User timezone: ${options.timezone}
 User language: ${options.language}
 ${forcedTypeText}
 ${forcedScopeText}
@@ -468,7 +553,10 @@ Rules:
 - DD-MM-YYYY means day-month-year. YYYY-MM-DD means year-month-day.
 - If there is a date in the message, use it as transactionDate.
 - Do not include the date in category or note. Remove the date from note.
-- Support relative dates: اليوم, النهاردة, today, сегодня = current date; أمس, yesterday, вчера = current date minus 1 day; قبل يومين, two days ago, два дня назад = current date minus 2 days.
+- Resolve all relative dates using the current date in the user's timezone and return transactionDate as YYYY-MM-DD.
+- Support relative dates: اليوم, النهاردة, today, сегодня = current date; أمس, yesterday, вчера = current date minus 1 day; أول أمس, позавчера = current date minus 2 days; قبل يومين, two days ago, два дня назад = current date minus 2 days.
+- Support weekday relative dates such as "يوم الجمعة اللي فاتت" and "в прошлую пятницу" as the previous matching weekday before the current date in the user's timezone.
+- Do not include relative date phrases in category or note.
 - If the user selected a transaction type, keep that type exactly.
 - If the user selected an expense scope, keep that scope exactly.
 - For expenses without selected scope, scope is "family" for home/family/wife/house/shared household/groceries for home: البيت, للبيت, الأسرة, العائلة, مراتي, زوجتي, لنا, أكل البيت, حاجات البيت, домой, для дома, семья, жене, продукты домой, для нас, home, family, wife, groceries for home, for us.
@@ -500,6 +588,25 @@ Input: "17-05-2026 урок с Мария 3000 работа"
 Output:
 {"status":"transaction","confidence":0.95,"type":"income","scope":null,"amount":3000,"category":"работа","transactionDate":"2026-05-17","note":"урок с Мария","currency":"RUB","needsScopeConfirmation":false}
 
+Assume current date is 2026-05-29 for these relative-date examples:
+Input: "اشتريت عصير قصب من يومين ب ٣٠٠ روبل"
+Output:
+{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":300,"category":"عصير قصب","transactionDate":"2026-05-27","note":null,"currency":"RUB","needsScopeConfirmation":true}
+
+Input: "اشتريت لحمة 500 روبل الجمعة اللي فاتت"
+Output:
+{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":500,"category":"لحمة","transactionDate":"2026-05-22","note":null,"currency":"RUB","needsScopeConfirmation":true}
+
+Input: "يوم السبت اللي فات اشتريت بصل بخمسين جنيه"
+Output:
+{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":50,"category":"بصل","transactionDate":"2026-05-23","note":null,"currency":"EGP","needsScopeConfirmation":true}
+
+Input: "купил мясо в прошлую пятницу за 500 рублей"
+Rule: transactionDate is the previous Friday strictly before the current date.
+
+Input: "bought meat for 500 rubles last Friday"
+Rule: transactionDate is the previous Friday strictly before the current date.
+
 Text:
 ${JSON.stringify(text)}
 `.trim();
@@ -509,12 +616,21 @@ export class AiTransactionParserService {
   private readonly provider: AiTextProvider | null;
 
   constructor() {
-    if (!config.aiApiKey || !config.aiModel) {
-      this.provider = null;
+    if (config.aiProvider === "groq") {
+      if (!config.groqApiKey) {
+        console.error("Groq AI provider is configured but GROQ_API_KEY is missing.");
+        this.provider = null;
+        return;
+      }
+
+      this.provider = new GroqTextProvider(
+        config.groqApiKey,
+        config.groqChatModel
+      );
       return;
     }
 
-    if ((config.aiProvider ?? "openrouter") !== "openrouter") {
+    if (!config.aiApiKey || !config.aiModel) {
       this.provider = null;
       return;
     }
@@ -544,7 +660,8 @@ export class AiTransactionParserService {
     const datedResult = applyDeterministicDate(
       parsedResult,
       text,
-      options.currentDate
+      options.currentDate,
+      options.timezone
     );
 
     return applyForcedOptions(datedResult, options);

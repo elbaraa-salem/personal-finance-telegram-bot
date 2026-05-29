@@ -50,6 +50,7 @@ type ReportMessages = {
   excelButton: string;
   excelPreparing: string;
   excelNoTransactions: string;
+  waitingForDateInput: string;
 };
 
 type TransactionMessages = {
@@ -163,6 +164,7 @@ type ReceiptMessages = {
 type CommonMessages = {
   readUserError: string;
   unexpectedError: string;
+  actionCancelled: string;
 };
 
 type VoiceMessages = {
@@ -228,6 +230,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
     common: {
         readUserError: "لم أستطع قراءة بيانات المستخدم.",
         unexpectedError: "حدث خطأ غير متوقع.",
+        actionCancelled: "تم إلغاء العملية.",
     },
     start: {
       chooseLanguage: "اختر اللغة / Выберите язык / Choose language:",
@@ -294,6 +297,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         excelButton: "📊 أريد ملف Excel",
         excelPreparing: "جاري تجهيز ملف Excel...",
         excelNoTransactions: "لا توجد عمليات في هذه الفترة.",
+        waitingForDateInput: "أنا الآن أنتظر تاريخ التقرير. اكتب التاريخ مثل 22-05-2026 أو أرسل «إلغاء».",
     },
     transaction: {
         type: "النوع",
@@ -557,6 +561,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
     common: {
         readUserError: "Не удалось прочитать данные пользователя.",
         unexpectedError: "Произошла непредвиденная ошибка.",
+        actionCancelled: "Действие отменено.",
     },
     start: {
       chooseLanguage: "Выберите язык:",
@@ -623,6 +628,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         excelButton: "📊 Скачать Excel",
         excelPreparing: "Готовлю Excel-файл...",
         excelNoTransactions: "Нет операций за этот период.",
+        waitingForDateInput: "Сейчас я жду дату для отчёта. Напишите дату в формате 22-05-2026 или отправьте «Отмена».",
     },
 
     transaction: {
@@ -887,6 +893,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
     common: {
         readUserError: "Could not read user data.",
         unexpectedError: "Unexpected error occurred.",
+        actionCancelled: "Action cancelled.",
     },
     start: {
       chooseLanguage: "Choose language:",
@@ -953,6 +960,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         excelButton: "📊 Download Excel",
         excelPreparing: "Preparing Excel file...",
         excelNoTransactions: "No transactions in this period.",
+        waitingForDateInput: "I am waiting for a report date. Write a date like 22-05-2026 or send “Cancel”.",
     },
     transaction: {
         type: "Type",

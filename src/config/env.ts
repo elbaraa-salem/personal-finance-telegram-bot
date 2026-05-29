@@ -12,6 +12,22 @@ function getRequiredEnv(name: string): string {
   return value;
 }
 
+function getVoiceTranscribeProvider(): "groq" {
+  const value = process.env.VOICE_TRANSCRIBE_PROVIDER;
+
+  if (value && value !== "groq") {
+    console.warn("VOICE_TRANSCRIBE_PROVIDER only supports groq. Falling back to groq.");
+  }
+
+  return "groq";
+}
+
+function getAiProvider(): "openrouter" | "groq" {
+  const value = process.env.AI_PROVIDER;
+
+  return value === "groq" ? "groq" : "openrouter";
+}
+
 export const config = {
   botToken: getRequiredEnv("BOT_TOKEN"),
   mongoUri: getRequiredEnv("MONGO_URI"),
@@ -20,7 +36,7 @@ export const config = {
   socksProxyUrl: process.env.SOCKS_PROXY_URL,
   defaultCurrency: process.env.DEFAULT_CURRENCY ?? "RUB",
   appTimezone: process.env.APP_TIMEZONE ?? "Asia/Tomsk",
-  aiProvider: process.env.AI_PROVIDER,
+  aiProvider: getAiProvider(),
   aiApiKey: process.env.AI_API_KEY,
   aiModel: process.env.AI_MODEL,
   aiBaseUrl: process.env.AI_BASE_URL ?? "https://openrouter.ai/api/v1",
@@ -30,10 +46,11 @@ export const config = {
   proverkachekaToken: process.env.PROVERKACHEKA_TOKEN,
   proverkachekaBaseUrl: process.env.PROVERKACHEKA_BASE_URL ?? "https://proverkacheka.com/api/v1",
   voiceInputEnabled: process.env.VOICE_INPUT_ENABLED === "true",
-  voiceTranscribeModel: process.env.VOICE_TRANSCRIBE_MODEL ?? "medium",
-  voiceTranscribeDevice: process.env.VOICE_TRANSCRIBE_DEVICE ?? "cpu",
-  voiceTranscribeComputeType: process.env.VOICE_TRANSCRIBE_COMPUTE_TYPE ?? "int8",
-  voiceTranscribePython: process.env.VOICE_TRANSCRIBE_PYTHON ?? "python3",
+  voiceTranscribeProvider: getVoiceTranscribeProvider(),
+  groqApiKey: process.env.GROQ_API_KEY,
+  groqChatModel: process.env.GROQ_CHAT_MODEL ?? "llama-3.1-8b-instant",
+  groqTranscribeModel: process.env.GROQ_TRANSCRIBE_MODEL ?? "whisper-large-v3-turbo",
+  groqTranscribeLanguage: process.env.GROQ_TRANSCRIBE_LANGUAGE?.trim() || undefined,
 };
 
 if (config.useProxy && !config.socksProxyUrl) {
