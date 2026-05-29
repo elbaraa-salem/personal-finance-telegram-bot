@@ -45,6 +45,7 @@ export const config = {
   receiptProvider: process.env.RECEIPT_PROVIDER,
   proverkachekaToken: process.env.PROVERKACHEKA_TOKEN,
   proverkachekaBaseUrl: process.env.PROVERKACHEKA_BASE_URL ?? "https://proverkacheka.com/api/v1",
+  qrDebug: process.env.QR_DEBUG === "true",
   voiceInputEnabled: process.env.VOICE_INPUT_ENABLED === "true",
   voiceTranscribeProvider: getVoiceTranscribeProvider(),
   groqApiKey: process.env.GROQ_API_KEY,

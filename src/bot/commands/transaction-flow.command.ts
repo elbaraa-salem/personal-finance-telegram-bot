@@ -329,6 +329,7 @@ async function handleReceiptQrImageFile(
     forcedScope?: TransactionScope;
     clearPendingTransactionOnSuccess?: boolean;
     allowScopeSelection?: boolean;
+    mimeType?: string;
   } = {}
 ): Promise<void> {
   const telegramUser = ctx.from;
@@ -354,7 +355,9 @@ async function handleReceiptQrImageFile(
 
   try {
     const imageBuffer = await downloadTelegramFileAsBuffer(ctx, fileId);
-    qrRaw = await decodeReceiptQrFromImageBuffer(imageBuffer);
+    qrRaw = await decodeReceiptQrFromImageBuffer(imageBuffer, {
+      ...(options.mimeType ? { mimeType: options.mimeType } : {}),
+    });
   } catch (error) {
     console.error("❌ Receipt QR image decode error:", error);
     if (ctx.session.pendingTransaction) {
@@ -1053,6 +1056,7 @@ export function registerTransactionFlowCommand(
         ...(forcedReceiptScope ? { forcedScope: forcedReceiptScope } : {}),
         clearPendingTransactionOnSuccess: pendingTransaction?.type === "expense",
         allowScopeSelection: expenseScopeMode === "separate",
+        mimeType: "image/jpeg",
       }
     );
   });
@@ -1102,6 +1106,7 @@ export function registerTransactionFlowCommand(
         ...(forcedReceiptScope ? { forcedScope: forcedReceiptScope } : {}),
         clearPendingTransactionOnSuccess: pendingTransaction?.type === "expense",
         allowScopeSelection: expenseScopeMode === "separate",
+        mimeType,
       }
     );
   });
