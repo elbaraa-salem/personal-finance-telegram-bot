@@ -30,7 +30,6 @@ import {
 import {
   createHistoryPaginationKeyboard,
   createMonthSelectionKeyboard,
-  reportCustomRangeCallback,
 } from "../keyboards/month-selection.keyboard";
 import { createReportExcelKeyboard } from "../keyboards/report-excel.keyboard";
 import {
@@ -39,8 +38,11 @@ import {
 } from "../keyboards/timezone.keyboard";
 import {
   answerStaleCallback,
+  clearLastInteractiveMessageReplyMarkup,
   clearActiveFlow,
   isActiveFlow,
+  isActiveFlowOfType,
+  rememberInteractiveMessage,
   startFlow,
 } from "../session/flow-session";
 
@@ -109,10 +111,10 @@ function parseYearMonth(value: string): { year: number; month: number } | null {
   return { year, month };
 }
 
-function parseHistoryMonthCallback(
+function parseHistoryPaginationCallback(
   data: string
 ): { year: number; month: number; page: number } | null {
-  const match = /^history_month:(\d{4}-\d{2}):(\d+)$/.exec(data);
+  const match = /^hist:p:(\d{4}-\d{2}):(\d+)$/.exec(data);
 
   if (!match) {
     return null;
@@ -156,7 +158,7 @@ async function replyWithAvailableReportMonths(
   try {
     const months = await reportService.getAvailableReportMonths(telegramUser.id);
 
-    await ctx.reply(messages.history.chooseReportMonth, {
+    const message = await ctx.reply(messages.history.chooseReportMonth, {
       reply_markup: createMonthSelectionKeyboard(
         months,
         "report_month",
@@ -164,6 +166,7 @@ async function replyWithAvailableReportMonths(
         { includeCustomRange: true, ...(flowId ? { flowId } : {}) }
       ),
     });
+    rememberInteractiveMessage(ctx, message.message_id);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : messages.common.unexpectedError;
@@ -173,9 +176,10 @@ async function replyWithAvailableReportMonths(
 }
 
 async function replyWithAvailableHistoryMonths(
-  ctx: Context,
+  ctx: BotContext,
   historyService: HistoryService,
-  userService: UserService
+  userService: UserService,
+  flowId?: string
 ): Promise<void> {
   const telegramUser = ctx.from;
 
@@ -194,9 +198,15 @@ async function replyWithAvailableHistoryMonths(
       return;
     }
 
-    await ctx.reply(messages.history.chooseHistoryMonth, {
-      reply_markup: createMonthSelectionKeyboard(months, "history_month", language),
+    const message = await ctx.reply(messages.history.chooseHistoryMonth, {
+      reply_markup: createMonthSelectionKeyboard(
+        months,
+        "history_month",
+        language,
+        flowId ? { flowId } : {}
+      ),
     });
+    rememberInteractiveMessage(ctx, message.message_id);
   } catch (error) {
     const message =
         error instanceof Error ? error.message : messages.common.unexpectedError;
@@ -363,7 +373,9 @@ export function registerMenuCommandHandlers(
 ): void {
 
   bot.hears(getMainMenuButtonTexts("history"), async (ctx) => {
-    await replyWithAvailableHistoryMonths(ctx, historyService, userService);
+    await clearLastInteractiveMessageReplyMarkup(ctx);
+    const flowId = startFlow(ctx, "history_month_selection");
+    await replyWithAvailableHistoryMonths(ctx, historyService, userService, flowId);
   });
 
   bot.hears(getMainMenuButtonTexts("reportDay"), async (ctx) => {
@@ -371,7 +383,8 @@ export function registerMenuCommandHandlers(
   });
 
   bot.hears(getMainMenuButtonTexts("moreReports"), async (ctx) => {
-    const flowId = startFlow(ctx, "custom_report");
+    await clearLastInteractiveMessageReplyMarkup(ctx);
+    const flowId = startFlow(ctx, "report_month_selection");
     await replyWithAvailableReportMonths(ctx, reportService, userService, flowId);
   });
 
@@ -408,8 +421,26 @@ export function registerMenuCommandHandlers(
     });
   });
 
-    bot.callbackQuery(/^report_month:(\d{4}-\d{2})$/, async (ctx) => {
+    bot.callbackQuery(/^rpt:m:(\d{4}-\d{2}):(.+)$/, async (ctx) => {
+      const telegramUser = ctx.from;
+
+      if (!telegramUser) {
+        await ctx.answerCallbackQuery();
+        await ctx.reply(getMessages().common.readUserError);
+        return;
+      }
+
+      const language = await userService.getUserLanguage(telegramUser.id);
+      const messages = getMessages(language);
+      const flowId = ctx.match[2] ?? "";
+
+      if (!isActiveFlow(ctx, "report_month_selection", flowId)) {
+        await answerStaleCallback(ctx, messages.common.outdatedButton);
+        return;
+      }
+
       await ctx.answerCallbackQuery();
+      clearActiveFlow(ctx);
 
       const yearMonth = parseYearMonth(ctx.match[1] ?? "");
 
@@ -426,7 +457,14 @@ export function registerMenuCommandHandlers(
       );
     });
 
-    bot.callbackQuery(/^r:custom:(.+)$/, async (ctx) => {
+    bot.callbackQuery(/^report_month:(\d{4}-\d{2})$/, async (ctx) => {
+      const language = ctx.from
+        ? await userService.getUserLanguage(ctx.from.id)
+        : "en";
+      await answerStaleCallback(ctx, getMessages(language).common.outdatedButton);
+    });
+
+    bot.callbackQuery(/^rpt:custom:(.+)$/, async (ctx) => {
       const telegramUser = ctx.from;
 
       if (!telegramUser) {
@@ -439,19 +477,27 @@ export function registerMenuCommandHandlers(
       const messages = getMessages(language);
       const flowId = ctx.match[1] ?? "";
 
-      if (!isActiveFlow(ctx, "custom_report", flowId)) {
+      if (!isActiveFlow(ctx, "report_month_selection", flowId)) {
         await answerStaleCallback(ctx, messages.common.outdatedButton);
         return;
       }
 
       await ctx.answerCallbackQuery();
+      const customFlowId = startFlow(ctx, "report_custom_range");
 
       ctx.session.pendingCustomReport = {
-        flowId,
+        flowId: customFlowId,
         step: "from",
       };
 
       await ctx.reply(getMessages(language).report.customRangeFromQuestion);
+    });
+
+    bot.callbackQuery(/^r:custom(?::.+)?$/, async (ctx) => {
+      const language = ctx.from
+        ? await userService.getUserLanguage(ctx.from.id)
+        : "en";
+      await answerStaleCallback(ctx, getMessages(language).common.outdatedButton);
     });
 
     bot.callbackQuery(/^report_excel:(\d{8}):(\d{8})$/, async (ctx) => {
@@ -498,10 +544,47 @@ export function registerMenuCommandHandlers(
       }
     });
 
-    bot.callbackQuery(/^history_month:(\d{4}-\d{2}):(\d+)$/, async (ctx) => {
+    bot.callbackQuery(/^hist:m:(\d{4}-\d{2}):(.+)$/, async (ctx) => {
+      const telegramUser = ctx.from;
+
+      if (!telegramUser) {
+        await ctx.answerCallbackQuery();
+        await ctx.reply(getMessages().common.readUserError);
+        return;
+      }
+
+      const language = await userService.getUserLanguage(telegramUser.id);
+      const messages = getMessages(language);
+      const flowId = ctx.match[2] ?? "";
+
+      if (!isActiveFlow(ctx, "history_month_selection", flowId)) {
+        await answerStaleCallback(ctx, messages.common.outdatedButton);
+        return;
+      }
+
+      await ctx.answerCallbackQuery();
+      clearActiveFlow(ctx);
+
+      const yearMonth = parseYearMonth(ctx.match[1] ?? "");
+
+      if (!yearMonth) {
+        return;
+      }
+
+      await replyWithMonthHistory(
+        ctx,
+        historyService,
+        userService,
+        yearMonth.year,
+        yearMonth.month,
+        1
+      );
+    });
+
+    bot.callbackQuery(/^hist:p:(\d{4}-\d{2}):(\d+)$/, async (ctx) => {
       await ctx.answerCallbackQuery();
 
-      const parsedCallback = parseHistoryMonthCallback(ctx.callbackQuery.data);
+      const parsedCallback = parseHistoryPaginationCallback(ctx.callbackQuery.data);
 
       if (!parsedCallback) {
         return;
@@ -515,6 +598,13 @@ export function registerMenuCommandHandlers(
         parsedCallback.month,
         parsedCallback.page
       );
+    });
+
+    bot.callbackQuery(/^history_month:(\d{4}-\d{2}):(\d+)$/, async (ctx) => {
+      const language = ctx.from
+        ? await userService.getUserLanguage(ctx.from.id)
+        : "en";
+      await answerStaleCallback(ctx, getMessages(language).common.outdatedButton);
     });
 
     bot.hears(getMainMenuButtonTexts("settings"), async (ctx) => {
@@ -669,7 +759,9 @@ export function registerMenuCommandHandlers(
         const messages = getMessages(language);
         const flowId = ctx.match[2] ?? "";
 
-        if (!isActiveFlow(ctx, "expense_scope_settings", flowId)) {
+        const activeFlow = ctx.session.activeFlow;
+
+        if (!isActiveFlowOfType(ctx, ["expense_scope_settings", "onboarding_expense_scope"], flowId)) {
           await answerStaleCallback(ctx, messages.common.outdatedButton);
           return;
         }
@@ -684,7 +776,11 @@ export function registerMenuCommandHandlers(
         await userService.setExpenseScopeMode(telegramUser.id, mode);
         clearActiveFlow(ctx);
 
-        await ctx.reply(messages.expenseScopeMode.updated, {
+        const replyText = activeFlow?.type === "onboarding_expense_scope"
+          ? `${messages.expenseScopeMode.updated}\n${messages.language.ready}`
+          : messages.expenseScopeMode.updated;
+
+        await ctx.reply(replyText, {
           reply_markup: createMainMenuKeyboard(language, mode),
         });
       }

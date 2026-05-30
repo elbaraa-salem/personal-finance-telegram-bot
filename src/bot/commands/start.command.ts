@@ -3,7 +3,9 @@ import { UserService } from "../../application/services/user.service";
 import { createMainMenuKeyboard } from "../keyboards/main-menu.keyboard";
 import { BotContext } from "../context";
 import { createLanguageKeyboard } from "../keyboards/language.keyboard";
+import { createExpenseScopeModeKeyboard } from "../keyboards/expense-scope-mode.keyboard";
 import { getMessages } from "../i18n/translations";
+import { startFlow } from "../session/flow-session";
 
 type RegisterTelegramUserData = {
   telegramId: number;
@@ -40,13 +42,25 @@ export function registerStartCommand(
     const user = await userService.registerTelegramUser(userData);
 
     if (!user.language) {
+      const flowId = startFlow(ctx, "onboarding_language");
+      console.log("Onboarding flow started:", flowId, telegramUser.id);
       await ctx.reply(getMessages().start.chooseLanguage, {
-        reply_markup: createLanguageKeyboard(),
+        reply_markup: createLanguageKeyboard(flowId),
       });
       return;
     }
 
     const messages = getMessages(user.language);
+
+    if (!user.expenseScopeMode) {
+      const flowId = startFlow(ctx, "onboarding_expense_scope");
+      console.log("Onboarding flow started:", flowId, telegramUser.id);
+      await ctx.reply(messages.expenseScopeMode.question, {
+        reply_markup: createExpenseScopeModeKeyboard(user.language, flowId),
+      });
+      return;
+    }
+
     const expenseScopeMode = user.expenseScopeMode ?? "separate";
 
     await ctx.reply(messages.start.welcome, {

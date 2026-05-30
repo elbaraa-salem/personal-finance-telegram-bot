@@ -142,6 +142,7 @@ type NaturalTransactionMessages = {
   cancelButton: string;
   noConfirmationSession: string;
   confirmationCancelled: string;
+  savedShort: string;
   originalText: string;
 };
 
@@ -400,6 +401,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         cancelButton: "❌ إلغاء",
         noConfirmationSession: "لا توجد عملية بانتظار التأكيد.",
         confirmationCancelled: "تم إلغاء العملية.",
+        savedShort: "✅ تم تسجيل العملية",
         originalText: "النص الأصلي",
     },
     receipt: {
@@ -746,6 +748,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         cancelButton: "❌ Отмена",
         noConfirmationSession: "Нет операции, ожидающей подтверждения.",
         confirmationCancelled: "Операция отменена.",
+        savedShort: "✅ Операция сохранена",
         originalText: "Исходный текст",
     },
     receipt: {
@@ -1090,6 +1093,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         cancelButton: "❌ Cancel",
         noConfirmationSession: "There is no transaction waiting for confirmation.",
         confirmationCancelled: "Transaction cancelled.",
+        savedShort: "✅ Transaction saved",
         originalText: "Original text",
     },
     receipt: {

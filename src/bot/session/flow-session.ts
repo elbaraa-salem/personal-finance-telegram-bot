@@ -44,6 +44,19 @@ export function isActiveFlow(
   );
 }
 
+export function isActiveFlowOfType(
+  ctx: BotContext,
+  types: ActiveFlowType[],
+  flowId: string | undefined
+): boolean {
+  return Boolean(
+    flowId &&
+    ctx.session.activeFlow &&
+    types.includes(ctx.session.activeFlow.type) &&
+    ctx.session.activeFlow.id === flowId
+  );
+}
+
 export async function answerStaleCallback(ctx: BotContext, text: string): Promise<void> {
   await ctx.answerCallbackQuery({
     text,
@@ -62,4 +75,19 @@ export function rememberInteractiveMessage(ctx: BotContext, messageId: number): 
     chatId,
     messageId,
   };
+}
+
+export async function clearLastInteractiveMessageReplyMarkup(ctx: BotContext): Promise<void> {
+  const lastInteractiveMessage = ctx.session.lastInteractiveMessage;
+
+  if (!lastInteractiveMessage) {
+    return;
+  }
+
+  await ctx.api.editMessageReplyMarkup(
+    lastInteractiveMessage.chatId,
+    lastInteractiveMessage.messageId
+  ).catch(() => undefined);
+
+  ctx.session.lastInteractiveMessage = null;
 }

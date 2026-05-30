@@ -9,7 +9,7 @@ type CreateMonthSelectionKeyboardOptions = {
   flowId?: string;
 };
 
-export const reportCustomRangeCallback = "r:custom";
+export const reportCustomRangeCallback = "rpt:custom";
 
 function formatMonthButtonLabel(month: TransactionMonthItem): string {
   return `${month.year}-${String(month.month).padStart(2, "0")}`;
@@ -25,10 +25,14 @@ export function createMonthSelectionKeyboard(
 
   months.forEach((month, index) => {
     const monthText = String(month.month).padStart(2, "0");
-    const callbackData =
-      callbackPrefix === "history_month"
-        ? `${callbackPrefix}:${month.year}-${monthText}:1`
-        : `${callbackPrefix}:${month.year}-${monthText}`;
+    const yearMonth = `${month.year}-${monthText}`;
+    const callbackData = options.flowId
+      ? callbackPrefix === "history_month"
+        ? `hist:m:${yearMonth}:${options.flowId}`
+        : `rpt:m:${yearMonth}:${options.flowId}`
+      : callbackPrefix === "history_month"
+        ? `${callbackPrefix}:${yearMonth}:1`
+        : `${callbackPrefix}:${yearMonth}`;
 
     keyboard.text(formatMonthButtonLabel(month), callbackData);
 
@@ -69,14 +73,14 @@ export function createHistoryPaginationKeyboard(
   if (page > 1) {
     keyboard.text(
       messages.history.previousPage,
-      `history_month:${year}-${monthText}:${page - 1}`
+      `hist:p:${year}-${monthText}:${page - 1}`
     );
   }
 
   if (page < totalPages) {
     keyboard.text(
       messages.history.nextPage,
-      `history_month:${year}-${monthText}:${page + 1}`
+      `hist:p:${year}-${monthText}:${page + 1}`
     );
   }
 

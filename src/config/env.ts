@@ -79,6 +79,7 @@ export const config = {
   openrouterBaseUrl: process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",
   qrDebug: process.env.QR_DEBUG === "true",
   voiceInputEnabled: process.env.VOICE_INPUT_ENABLED === "true",
+  voiceShowRecognizedText: process.env.VOICE_SHOW_RECOGNIZED_TEXT === "true",
   voiceMaxDurationSeconds: getOptionalNumberEnv("VOICE_MAX_DURATION_SECONDS", 15),
   voiceTranscribeProvider: getVoiceTranscribeProvider(),
   groqApiKey: process.env.GROQ_API_KEY,

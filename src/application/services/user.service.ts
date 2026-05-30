@@ -13,6 +13,10 @@ type RegisterTelegramUserData = {
 export class UserService {
     constructor(private readonly userRepository: UserRepository){}
 
+    async findByTelegramId(telegramId: number) {
+        return this.userRepository.findByTelegramId(telegramId);
+    }
+
     async registerTelegramUser(data: RegisterTelegramUserData) {
         const existingUser = await this.userRepository.findByTelegramId(
             data.telegramId

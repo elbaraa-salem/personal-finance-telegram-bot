@@ -5,14 +5,16 @@ import { getMessages } from "../i18n/translations";
 import {
   createLanguageKeyboard,
   getLanguageFromCallback,
-  languageCallbacks,
 } from "../keyboards/language.keyboard";
-import { getMainMenuButtonTexts } from "../keyboards/main-menu.keyboard";
+import {
+  createMainMenuKeyboard,
+  getMainMenuButtonTexts,
+} from "../keyboards/main-menu.keyboard";
 import { createExpenseScopeModeKeyboard } from "../keyboards/expense-scope-mode.keyboard";
 import {
   answerStaleCallback,
   clearActiveFlow,
-  isActiveFlow,
+  isActiveFlowOfType,
   startFlow,
 } from "../session/flow-session";
 
@@ -49,8 +51,11 @@ export function registerLanguageCommand(
       }
 
       const currentMessages = getMessages(language);
+      const activeFlow = ctx.session.activeFlow;
 
-      if (!isActiveFlow(ctx, "language_settings", flowId)) {
+      console.log("Language callback:", language, flowId, activeFlow);
+
+      if (!isActiveFlowOfType(ctx, ["language_settings", "onboarding_language"], flowId)) {
         await answerStaleCallback(ctx, currentMessages.common.outdatedButton);
         return;
       }
@@ -60,12 +65,32 @@ export function registerLanguageCommand(
       await userService.setUserLanguage(ctx.from.id, language);
 
       const messages = getMessages(language);
-      const expenseFlowId = startFlow(ctx, "expense_scope_settings");
+      const isOnboarding = activeFlow?.type === "onboarding_language";
+      console.log("Language selected from flow:", activeFlow?.type, language);
 
       await ctx.reply(messages.language.selected);
+
+      if (!isOnboarding) {
+        const expenseScopeMode = await userService.getExpenseScopeMode(ctx.from.id);
+        clearActiveFlow(ctx);
+        await ctx.reply(messages.language.ready, {
+          reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
+        });
+        return;
+      }
+
+      const expenseFlowId = startFlow(ctx, "onboarding_expense_scope");
+
       await ctx.reply(messages.expenseScopeMode.question, {
         reply_markup: createExpenseScopeModeKeyboard(language, expenseFlowId),
       });
     }
   );
+
+  bot.callbackQuery(/^lang:(ar|ru|en)$/, async (ctx) => {
+    const language = getLanguageFromCallback(ctx.callbackQuery.data);
+    const messages = getMessages(language ?? "en");
+
+    await answerStaleCallback(ctx, messages.common.outdatedButton);
+  });
 }

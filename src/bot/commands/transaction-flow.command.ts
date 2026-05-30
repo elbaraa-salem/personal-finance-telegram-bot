@@ -31,6 +31,8 @@ import {
   createScopeConfirmationKeyboard,
   scopeConfirmationCallbacks,
 } from "../keyboards/scope-confirmation.keyboard";
+import { createLanguageKeyboard } from "../keyboards/language.keyboard";
+import { createExpenseScopeModeKeyboard } from "../keyboards/expense-scope-mode.keyboard";
 import { createReceiptQrConfirmationKeyboard } from "../keyboards/receipt-import.keyboard";
 import { createReportExcelKeyboard } from "../keyboards/report-excel.keyboard";
 import { formatReceiptImportPreview } from "../formatters/receipt-import.formatter";
@@ -157,6 +159,43 @@ async function getLanguageForContext(
   return userService.getUserLanguage(telegramUser.id);
 }
 
+async function ensureOnboardingComplete(
+  ctx: BotContext,
+  userService: UserService
+): Promise<boolean> {
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    return true;
+  }
+
+  const user = await userService.findByTelegramId(telegramUser.id);
+
+  if (!user) {
+    return true;
+  }
+
+  if (!user.language) {
+    const flowId = startFlow(ctx, "onboarding_language");
+    console.log("Onboarding flow started:", flowId, telegramUser.id);
+    await ctx.reply(getMessages().start.chooseLanguage, {
+      reply_markup: createLanguageKeyboard(flowId),
+    });
+    return false;
+  }
+
+  if (!user.expenseScopeMode) {
+    const flowId = startFlow(ctx, "onboarding_expense_scope");
+    console.log("Onboarding flow started:", flowId, telegramUser.id);
+    await ctx.reply(getMessages(user.language).expenseScopeMode.question, {
+      reply_markup: createExpenseScopeModeKeyboard(user.language, flowId),
+    });
+    return false;
+  }
+
+  return true;
+}
+
 async function startTransactionFlow(
   ctx: BotContext,
   type: TransactionType,
@@ -249,6 +288,20 @@ function isShortcutTransactionText(text: string): boolean {
 
 function looksLikeReceiptQrRaw(text: string): boolean {
   return ["fn=", "fp=", "i=", "t=", "s=", "n="].every((field) => text.includes(field));
+}
+
+function shouldClearActiveFlowForNormalText(ctx: BotContext): boolean {
+  const activeFlowType = ctx.session.activeFlow?.type;
+
+  return Boolean(
+    activeFlowType &&
+    activeFlowType !== "transaction_confirmation" &&
+    activeFlowType !== "receipt_confirmation" &&
+    activeFlowType !== "delete_confirmation" &&
+    activeFlowType !== "onboarding_language" &&
+    activeFlowType !== "onboarding_expense_scope" &&
+    activeFlowType !== "onboarding_currency"
+  );
 }
 
 function canUseReceiptImport(currency: string | null | undefined): boolean {
@@ -480,7 +533,10 @@ async function saveParsedTransaction(
     category: string;
     note?: string;
     transactionDate: string;
-  }
+  },
+  options: {
+    suppressSuccessReply?: boolean;
+  } = {}
 ): Promise<void> {
   const telegramUser = ctx.from;
 
@@ -510,6 +566,10 @@ async function saveParsedTransaction(
     ...(data.note ? { note: data.note } : {}),
     transactionDate,
   });
+
+  if (options.suppressSuccessReply) {
+    return;
+  }
 
   await ctx.reply(formatCreatedTransaction(transaction, language, currency), {
     reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
@@ -833,6 +893,10 @@ async function handleIncomingTransactionText(
   }
 
   if (!pendingTransaction) {
+    if (shouldClearActiveFlowForNormalText(ctx)) {
+      clearActiveFlow(ctx);
+    }
+
     if (
       isCommandText(text) ||
       isMainMenuButtonText(text) ||
@@ -1093,8 +1157,13 @@ export function registerTransactionFlowCommand(
           category: pendingConfirmation.category,
           ...(pendingConfirmation.note ? { note: pendingConfirmation.note } : {}),
           transactionDate: pendingConfirmation.transactionDate,
+        }, {
+          suppressSuccessReply: pendingConfirmation.source === "voice",
         });
         clearActiveFlow(ctx);
+        if (pendingConfirmation.source === "voice") {
+          await ctx.reply(messages.naturalTransaction.savedShort);
+        }
       } catch (error) {
         console.error("❌ Transaction confirmation save error:", error);
         await ctx.reply(messages.common.unexpectedError);
@@ -1403,7 +1472,9 @@ export function registerTransactionFlowCommand(
         return;
       }
 
-      await ctx.reply(messages.voice.voiceRecognizedText(recognizedText));
+      if (config.voiceShowRecognizedText) {
+        await ctx.reply(messages.voice.voiceRecognizedText(recognizedText));
+      }
 
       await handleIncomingTransactionText(
         ctx,
@@ -1432,6 +1503,12 @@ export function registerTransactionFlowCommand(
 
   bot.on("message:text", async (ctx, next) => {
     const text = ctx.message.text.trim();
+    const onboardingComplete = await ensureOnboardingComplete(ctx, userService);
+
+    if (!onboardingComplete) {
+      return;
+    }
+
     const handled = await handleIncomingTransactionText(
       ctx,
       text,
