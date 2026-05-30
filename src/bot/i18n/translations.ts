@@ -63,6 +63,7 @@ type TransactionMessages = {
   scopePersonal: string;
   scopeFamily: string;
   amount: string;
+  parentCategory: string;
   category: string;
   date: string;
   note: string;
@@ -136,6 +137,12 @@ type NaturalTransactionMessages = {
   askScope: string;
   saved: string;
   noScopeSession: string;
+  confirmTitle: string;
+  confirmButton: string;
+  cancelButton: string;
+  noConfirmationSession: string;
+  confirmationCancelled: string;
+  originalText: string;
 };
 
 type ReceiptMessages = {
@@ -151,6 +158,9 @@ type ReceiptMessages = {
   receiptCancelled: string;
   receiptCouldNotImport: string;
   receiptAiNotConfigured: string;
+  receiptSimpleAnalysisUsed: string;
+  receiptAiAnalysisUsed: string;
+  receiptAiFallbackAnalysisUsed: string;
   receiptNoItems: string;
   groupedTotalDiffers: string;
   receiptChooseScopeAndConfirmAmount: string;
@@ -159,17 +169,20 @@ type ReceiptMessages = {
   qrImageDecodeFailed: string;
   qrImageUnsupportedFile: string;
   receiptExpenseOnly: string;
+  receiptImportRubOnly: string;
 };
 
 type CommonMessages = {
   readUserError: string;
   unexpectedError: string;
   actionCancelled: string;
+  outdatedButton: string;
 };
 
 type VoiceMessages = {
   voiceDisabled: string;
   voiceTranscribing: string;
+  voiceTooLong: string;
   voiceTranscriptionFailed: string;
   voiceRecognizedText: (text: string) => string;
 };
@@ -231,6 +244,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         readUserError: "لم أستطع قراءة بيانات المستخدم.",
         unexpectedError: "حدث خطأ غير متوقع.",
         actionCancelled: "تم إلغاء العملية.",
+        outdatedButton: "هذا الزر قديم. افتح القائمة من جديد.",
     },
     start: {
       chooseLanguage: "اختر اللغة / Выберите язык / Choose language:",
@@ -309,6 +323,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         scopePersonal: "شخصية",
         scopeFamily: "أسرية",
         amount: "المبلغ",
+        parentCategory: "التصنيف العام",
         category: "التصنيف",
         date: "التاريخ",
         note: "ملاحظة",
@@ -380,6 +395,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
         askScope: "هل هذه العملية شخصية أم أسرية؟",
         saved: "✅ تم تسجيل العملية:",
         noScopeSession: "لا توجد عملية بانتظار تحديد النطاق.",
+        confirmTitle: "تأكد من العملية قبل الحفظ:",
+        confirmButton: "✅ تأكيد",
+        cancelButton: "❌ إلغاء",
+        noConfirmationSession: "لا توجد عملية بانتظار التأكيد.",
+        confirmationCancelled: "تم إلغاء العملية.",
+        originalText: "النص الأصلي",
     },
     receipt: {
         receiptFound: "🧾 تم العثور على شيك",
@@ -394,6 +415,9 @@ export const translations: Record<SupportedLanguage, Messages> = {
         receiptCancelled: "تم إلغاء استيراد الشيك.",
         receiptCouldNotImport: "لم أستطع استيراد هذا الشيك. حاول مرة أخرى لاحقًا.",
         receiptAiNotConfigured: "تحليل الشيك بالذكاء الاصطناعي غير مفعّل.",
+        receiptSimpleAnalysisUsed: "تمت قراءة الشيك. سيتم استخدام تحليل بسيط بدون ذكاء اصطناعي.",
+        receiptAiAnalysisUsed: "تم تحسين تصنيفات الشيك بالذكاء الاصطناعي.",
+        receiptAiFallbackAnalysisUsed: "تم تحسين تصنيفات الشيك بالذكاء الاصطناعي عبر المزود الاحتياطي.",
         receiptNoItems: "لم أجد عناصر في الشيك.",
         groupedTotalDiffers: "⚠️ إجمالي المجموعات يختلف عن إجمالي الشيك.",
         receiptChooseScopeAndConfirmAmount: "اختر نوع المصروف وتأكد أن المبلغ صحيح:",
@@ -402,10 +426,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
         qrImageDecodeFailed: "لم أستطع قراءة QR من الصورة. جرّب إرسال صورة أقرب للكود بدون انعكاس أو اهتزاز، أو أرسل الصورة كملف.",
         qrImageUnsupportedFile: "هذا الملف ليس صورة مدعومة.",
         receiptExpenseOnly: "الشيكات مدعومة للمصروفات فقط. ألغِ وضع الدخل أو اختر نوع مصروف.",
+        receiptImportRubOnly: "استيراد الشيكات مدعوم حاليًا للروبل الروسي فقط، لأن الشيكات تُقرأ من خدمة روسية. غيّر العملة إلى RUB من الإعدادات إذا أردت استخدام هذه الخاصية.",
     },
     voice: {
         voiceDisabled: "الإدخال الصوتي غير مفعّل حاليًا.",
         voiceTranscribing: "جاري تحويل الصوت إلى نص...",
+        voiceTooLong: "الرسالة الصوتية طويلة جدًا. الحد الأقصى هو 15 ثانية.",
         voiceTranscriptionFailed: "لم أستطع فهم الرسالة الصوتية. حاول تسجيلها بوضوح أكثر.",
         voiceRecognizedText: (text: string) => `فهمت النص التالي:\n${text}`,
     },
@@ -562,6 +588,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         readUserError: "Не удалось прочитать данные пользователя.",
         unexpectedError: "Произошла непредвиденная ошибка.",
         actionCancelled: "Действие отменено.",
+        outdatedButton: "Эта кнопка устарела. Откройте меню заново.",
     },
     start: {
       chooseLanguage: "Выберите язык:",
@@ -641,6 +668,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         scopePersonal: "личная",
         scopeFamily: "семейная",
         amount: "Сумма",
+        parentCategory: "Раздел",
         category: "Категория",
         date: "Дата",
         note: "Примечание",
@@ -713,6 +741,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
         askScope: "Эта операция личная или семейная?",
         saved: "✅ Операция сохранена:",
         noScopeSession: "Нет операции, ожидающей выбора области.",
+        confirmTitle: "Проверьте операцию перед сохранением:",
+        confirmButton: "✅ Подтвердить",
+        cancelButton: "❌ Отмена",
+        noConfirmationSession: "Нет операции, ожидающей подтверждения.",
+        confirmationCancelled: "Операция отменена.",
+        originalText: "Исходный текст",
     },
     receipt: {
         receiptFound: "🧾 Чек найден",
@@ -727,6 +761,9 @@ export const translations: Record<SupportedLanguage, Messages> = {
         receiptCancelled: "Импорт чека отменён.",
         receiptCouldNotImport: "Не удалось импортировать этот чек. Попробуйте позже.",
         receiptAiNotConfigured: "AI-группировка чека не настроена.",
+        receiptSimpleAnalysisUsed: "Чек прочитан. Будет использован простой разбор без ИИ.",
+        receiptAiAnalysisUsed: "Категории чека улучшены с помощью ИИ.",
+        receiptAiFallbackAnalysisUsed: "Категории чека улучшены с помощью резервного ИИ-провайдера.",
         receiptNoItems: "В чеке не найдены позиции.",
         groupedTotalDiffers: "⚠️ Сумма групп отличается от итога чека.",
         receiptChooseScopeAndConfirmAmount: "Выберите область расхода и подтвердите, что сумма верная:",
@@ -735,10 +772,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
         qrImageDecodeFailed: "Не удалось прочитать QR-код. Попробуйте отправить фото ближе к QR-коду, без бликов и размытия, или отправьте изображение как файл.",
         qrImageUnsupportedFile: "Этот файл не является поддерживаемым изображением.",
         receiptExpenseOnly: "Чеки поддерживаются только для расходов. Отмените режим дохода или выберите тип расхода.",
+        receiptImportRubOnly: "Импорт чеков сейчас поддерживается только для валюты RUB, потому что чеки читаются через российский сервис. Измените валюту на RUB в настройках, если хотите использовать эту функцию.",
     },
     voice: {
         voiceDisabled: "Голосовой ввод сейчас отключён.",
         voiceTranscribing: "Распознаю голосовое сообщение...",
+        voiceTooLong: "Голосовое сообщение слишком длинное. Максимум — 15 секунд.",
         voiceTranscriptionFailed: "Не удалось распознать голосовое сообщение. Попробуйте записать его чётче.",
         voiceRecognizedText: (text: string) => `Я распознал:\n${text}`,
     },
@@ -894,6 +933,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         readUserError: "Could not read user data.",
         unexpectedError: "Unexpected error occurred.",
         actionCancelled: "Action cancelled.",
+        outdatedButton: "This button is outdated. Open the menu again.",
     },
     start: {
       chooseLanguage: "Choose language:",
@@ -972,6 +1012,7 @@ export const translations: Record<SupportedLanguage, Messages> = {
         scopePersonal: "personal",
         scopeFamily: "family",
         amount: "Amount",
+        parentCategory: "Parent category",
         category: "Category",
         date: "Date",
         note: "Note",
@@ -1044,6 +1085,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
         askScope: "Is this transaction personal or family?",
         saved: "✅ Transaction saved:",
         noScopeSession: "There is no transaction waiting for scope confirmation.",
+        confirmTitle: "Confirm transaction before saving:",
+        confirmButton: "✅ Confirm",
+        cancelButton: "❌ Cancel",
+        noConfirmationSession: "There is no transaction waiting for confirmation.",
+        confirmationCancelled: "Transaction cancelled.",
+        originalText: "Original text",
     },
     receipt: {
         receiptFound: "🧾 Receipt found",
@@ -1058,6 +1105,9 @@ export const translations: Record<SupportedLanguage, Messages> = {
         receiptCancelled: "Receipt import cancelled.",
         receiptCouldNotImport: "I could not import this receipt. Please try again later.",
         receiptAiNotConfigured: "Receipt AI grouping is not configured.",
+        receiptSimpleAnalysisUsed: "Receipt was read. A simple non-AI analysis will be used.",
+        receiptAiAnalysisUsed: "Receipt categories were improved with AI.",
+        receiptAiFallbackAnalysisUsed: "Receipt categories were improved using the fallback AI provider.",
         receiptNoItems: "No receipt items were found.",
         groupedTotalDiffers: "⚠️ The grouped total differs from receipt total.",
         receiptChooseScopeAndConfirmAmount: "Choose expense scope and confirm that the amount is correct:",
@@ -1066,10 +1116,12 @@ export const translations: Record<SupportedLanguage, Messages> = {
         qrImageDecodeFailed: "I couldn't read the QR code. Try sending a closer photo without glare or blur, or send the image as a file.",
         qrImageUnsupportedFile: "This file is not a supported image.",
         receiptExpenseOnly: "Receipts are supported only for expenses. Please cancel income mode or choose an expense type.",
+        receiptImportRubOnly: "Receipt import is currently supported only for RUB, because receipts are read through a Russian service. Change your currency to RUB in settings if you want to use this feature.",
     },
     voice: {
         voiceDisabled: "Voice input is currently disabled.",
         voiceTranscribing: "Transcribing voice message...",
+        voiceTooLong: "Voice message is too long. Maximum length is 15 seconds.",
         voiceTranscriptionFailed: "I couldn't understand the voice message. Try recording it more clearly.",
         voiceRecognizedText: (text: string) => `I recognized:\n${text}`,
     },

@@ -1,4 +1,4 @@
-import { Bot, GrammyError } from "grammy";
+import { Bot, GrammyError, InlineKeyboard } from "grammy";
 import path from "node:path";
 import { rm } from "node:fs/promises";
 import { AiTransactionParserService } from "../../application/services/ai-transaction-parser.service";
@@ -10,7 +10,7 @@ import { VoiceTranscriptionService } from "../../application/services/voice-tran
 import { config } from "../../config/env";
 import { TransactionScope, TransactionType } from "../../infrastructure/database/models/transaction.model";
 import { ExpenseScopeMode } from "../../infrastructure/database/models/user.model";
-import { BotContext } from "../context";
+import { BotContext, PendingTransactionConfirmation } from "../context";
 import { UserService } from "../../application/services/user.service";
 import {
   createMainMenuKeyboard,
@@ -19,6 +19,7 @@ import {
   isMainMenuButtonText,
 } from "../keyboards/main-menu.keyboard";
 import { formatCreatedTransaction } from "../formatters/transaction.formatter";
+import { formatAmount } from "../formatters/amount.formatter";
 import {
   createCancelFlowKeyboard,
   getCancelFlowButtonTexts,
@@ -39,8 +40,18 @@ import {
   downloadTelegramFileAsBuffer,
   downloadTelegramFileToTempFile,
 } from "../utils/download-telegram-file";
+import {
+  answerStaleCallback,
+  clearActiveFlow,
+  isActiveFlow,
+  startFlow,
+} from "../session/flow-session";
 
 type EditMessageTextOptions = Parameters<BotContext["editMessageText"]>[1];
+const transactionConfirmationCallbacks = {
+  confirm: "tr:ok",
+  cancel: "tr:no",
+} as const;
 
 function parseDate(text: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
@@ -80,6 +91,57 @@ function getTransactionLabel(
   return type === "income"
     ? messages.transaction.income
     : messages.transaction.expense;
+}
+
+function createTransactionConfirmationKeyboard(
+  language: SupportedLanguage,
+  flowId: string
+): InlineKeyboard {
+  const messages = getMessages(language).naturalTransaction;
+
+  return new InlineKeyboard()
+    .text(messages.confirmButton, `${transactionConfirmationCallbacks.confirm}:${flowId}`)
+    .text(messages.cancelButton, `${transactionConfirmationCallbacks.cancel}:${flowId}`);
+}
+
+function formatTransactionConfirmationPreview(
+  data: Omit<PendingTransactionConfirmation, "flowId">,
+  language: SupportedLanguage,
+  currency: string
+): string {
+  const messages = getMessages(language);
+  const transactionType = data.type === "income"
+    ? messages.transaction.income
+    : messages.transaction.expense;
+  const scope = data.scope
+    ? data.scope === "personal"
+      ? messages.transaction.scopePersonal
+      : messages.transaction.scopeFamily
+    : "";
+  const lines = [
+    messages.naturalTransaction.confirmTitle,
+    "",
+    `${messages.transaction.type}: ${transactionType}`,
+  ];
+
+  if (scope) {
+    lines.push(`${messages.transaction.scope}: ${scope}`);
+  }
+
+  lines.push(
+    `${messages.transaction.amount}: ${formatAmount(data.amount, currency)}`,
+    ...(data.parentCategory ? [`${messages.transaction.parentCategory}: ${data.parentCategory}`] : []),
+    `${messages.transaction.category}: ${data.category}`,
+    `${messages.transaction.date}: ${data.transactionDate}`
+  );
+
+  if (data.note) {
+    lines.push(`${messages.transaction.note}: ${data.note}`);
+  }
+
+  lines.push(`${messages.naturalTransaction.originalText}: ${data.originalText}`);
+
+  return lines.join("\n");
 }
 
 async function getLanguageForContext(
@@ -171,13 +233,6 @@ function isMenuActionOrCommandText(text: string): boolean {
   return isCommandText(text) || isMainMenuButtonText(text);
 }
 
-function clearPendingFlows(ctx: BotContext): void {
-  ctx.session.pendingCustomReport = null;
-  ctx.session.pendingTransaction = null;
-  ctx.session.pendingCurrencyInput = false;
-  ctx.session.pendingReceiptImport = null;
-}
-
 function shouldBlockDuringTransactionFlow(text: string): boolean {
   if (isCancelFlowButtonText(text)) {
     return false;
@@ -194,6 +249,27 @@ function isShortcutTransactionText(text: string): boolean {
 
 function looksLikeReceiptQrRaw(text: string): boolean {
   return ["fn=", "fp=", "i=", "t=", "s=", "n="].every((field) => text.includes(field));
+}
+
+function canUseReceiptImport(currency: string | null | undefined): boolean {
+  return currency === "RUB";
+}
+
+async function replyReceiptImportRubOnly(
+  ctx: BotContext,
+  language: SupportedLanguage,
+  expenseScopeMode: ExpenseScopeMode
+): Promise<void> {
+  const message = getMessages(language).receipt.receiptImportRubOnly;
+
+  if (ctx.session.pendingTransaction) {
+    await ctx.reply(message);
+    return;
+  }
+
+  await ctx.reply(message, {
+    reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
+  });
 }
 
 function getForcedScopeFromUserMode(mode: ExpenseScopeMode): TransactionScope | undefined {
@@ -244,6 +320,12 @@ async function handleReceiptQrRawText(
   const language = await userService.getUserLanguage(telegramUser.id);
   const currency = await userService.getUserCurrency(telegramUser.id);
   const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
+
+  if (!canUseReceiptImport(currency)) {
+    console.warn(`Receipt import blocked: user currency is ${currency ?? "missing"}`);
+    await replyReceiptImportRubOnly(ctx, language, expenseScopeMode);
+    return;
+  }
 
   try {
     const preview = await receiptImportService.importReceiptByQrRaw(
@@ -341,7 +423,14 @@ async function handleReceiptQrImageFile(
 
   const language = await userService.getUserLanguage(telegramUser.id);
   const messages = getMessages(language);
+  const currency = await userService.getUserCurrency(telegramUser.id);
   const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
+
+  if (!canUseReceiptImport(currency)) {
+    console.warn(`Receipt import blocked: user currency is ${currency ?? "missing"}`);
+    await replyReceiptImportRubOnly(ctx, language, expenseScopeMode);
+    return;
+  }
 
   if (options.clearPendingTransactionOnSuccess) {
     await ctx.reply(messages.receipt.qrImageProcessing, {
@@ -387,6 +476,7 @@ async function saveParsedTransaction(
     type: TransactionType;
     scope?: TransactionScope;
     amount: number;
+    parentCategory?: string;
     category: string;
     note?: string;
     transactionDate: string;
@@ -415,6 +505,7 @@ async function saveParsedTransaction(
     type: data.type,
     ...(data.scope ? { scope: data.scope } : {}),
     amount: data.amount,
+    ...(data.parentCategory ? { parentCategory: data.parentCategory } : {}),
     category: data.category,
     ...(data.note ? { note: data.note } : {}),
     transactionDate,
@@ -425,6 +516,32 @@ async function saveParsedTransaction(
   });
 }
 
+async function askForTransactionConfirmation(
+  ctx: BotContext,
+  userService: UserService,
+  data: Omit<PendingTransactionConfirmation, "flowId">
+): Promise<void> {
+  const telegramUser = ctx.from;
+
+  if (!telegramUser) {
+    await ctx.reply(getMessages().common.readUserError);
+    return;
+  }
+
+  const language = await userService.getUserLanguage(telegramUser.id);
+  const currency = await userService.getUserCurrency(telegramUser.id);
+  const flowId = startFlow(ctx, "transaction_confirmation");
+
+  ctx.session.pendingTransactionConfirmation = {
+    ...data,
+    flowId,
+  };
+
+  await ctx.reply(formatTransactionConfirmationPreview(data, language, currency), {
+    reply_markup: createTransactionConfirmationKeyboard(language, flowId),
+  });
+}
+
 async function parseAndHandleNaturalTransaction(
   ctx: BotContext,
   text: string,
@@ -432,7 +549,11 @@ async function parseAndHandleNaturalTransaction(
   transactionService: TransactionService,
   userService: UserService,
   forcedType?: TransactionType,
-  forcedScope?: TransactionScope
+  forcedScope?: TransactionScope,
+  options: {
+    source?: "text" | "voice";
+    requireConfirmation?: boolean;
+  } = {}
 ): Promise<void> {
   const telegramUser = ctx.from;
 
@@ -446,6 +567,9 @@ async function parseAndHandleNaturalTransaction(
   const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
   const modeForcedScope = getForcedScopeFromUserMode(expenseScopeMode);
   const effectiveForcedScope = modeForcedScope ?? forcedScope;
+  const source = options.source ?? "text";
+  const requireConfirmation =
+    options.requireConfirmation ?? (source === "voice" || config.requireTextAiConfirmation);
   const messages = getMessages(language);
   const replyWithFlowMarkup = async (message: string): Promise<void> => {
     if (forcedType) {
@@ -489,9 +613,13 @@ async function parseAndHandleNaturalTransaction(
       ctx.session.awaitingScopeConfirmation = {
         type: "expense",
         amount: result.amount,
+        ...(result.parentCategory ? { parentCategory: result.parentCategory } : {}),
         category: result.category,
         ...(result.note ? { note: result.note } : {}),
         transactionDate: result.transactionDate,
+        source,
+        originalText: text,
+        requireConfirmation,
       };
       ctx.session.pendingTransaction = null;
 
@@ -501,14 +629,27 @@ async function parseAndHandleNaturalTransaction(
       return;
     }
 
-    await saveParsedTransaction(ctx, transactionService, userService, {
+    const transactionData = {
       type: result.type,
       ...(scope ? { scope } : {}),
       amount: result.amount,
+      ...(result.parentCategory ? { parentCategory: result.parentCategory } : {}),
       category: result.category,
       note: result.note,
       transactionDate: result.transactionDate,
-    });
+    };
+
+    if (requireConfirmation) {
+      await askForTransactionConfirmation(ctx, userService, {
+        source,
+        ...transactionData,
+        originalText: text,
+      });
+      ctx.session.pendingTransaction = null;
+      return;
+    }
+
+    await saveParsedTransaction(ctx, transactionService, userService, transactionData);
 
     ctx.session.pendingTransaction = null;
   } catch (error) {
@@ -557,7 +698,10 @@ function parseCustomReportDate(text: string): Date | null {
 }
 
 function looksLikeCustomReportDateInput(text: string): boolean {
-  return /^\d{1,2}[-./]\d{1,2}[-./]\d{4}$/.test(text.trim());
+  const trimmedText = text.trim();
+
+  return /^\d{1,2}[-./]\d{1,2}[-./]\d{2,4}$/.test(trimmedText) ||
+    /^\d{4}[-./]\d{1,2}[-./]\d{1,2}$/.test(trimmedText);
 }
 
 function addUtcDays(date: Date, days: number): Date {
@@ -586,7 +730,7 @@ async function handleCustomReportDateInput(
   const messages = getMessages(language);
 
   if (text === "/cancel" || isCancelFlowButtonText(text) || isLocalizedCancelText(text)) {
-    ctx.session.pendingCustomReport = null;
+    clearActiveFlow(ctx);
     await ctx.reply(messages.common.actionCancelled);
     return;
   }
@@ -604,6 +748,7 @@ async function handleCustomReportDateInput(
 
   if (pendingCustomReport.step === "from") {
     ctx.session.pendingCustomReport = {
+      flowId: pendingCustomReport.flowId,
       step: "to",
       fromDate: text,
     };
@@ -617,6 +762,7 @@ async function handleCustomReportDateInput(
 
   if (!fromDateText || !fromDate) {
     ctx.session.pendingCustomReport = {
+      flowId: pendingCustomReport.flowId,
       step: "from",
     };
     await ctx.reply(messages.report.customRangeFromQuestion);
@@ -636,7 +782,7 @@ async function handleCustomReportDateInput(
     messages.report.customTitle(fromDateText, text)
   );
 
-  ctx.session.pendingCustomReport = null;
+  clearActiveFlow(ctx);
 
   await ctx.reply(formatReport(report, language, currency), {
     reply_markup: createReportExcelKeyboard(language, fromDate, endDateExclusive),
@@ -653,24 +799,37 @@ async function handleIncomingTransactionText(
   reportService: ReportService,
   options: {
     passThroughShortcutTransactions?: boolean;
+    source?: "text" | "voice";
+    requireConfirmation?: boolean;
   } = {}
 ): Promise<boolean> {
   const pendingTransaction = ctx.session.pendingTransaction;
 
   if (ctx.session.pendingCustomReport) {
     if (isMenuActionOrCommandText(text)) {
-      clearPendingFlows(ctx);
+      clearActiveFlow(ctx);
       return false;
     }
 
-    try {
-      await handleCustomReportDateInput(ctx, text, reportService, userService);
-    } catch (error) {
-      console.error("❌ Custom report error:", error);
+    if (isLocalizedCancelText(text)) {
       const language = await getLanguageForContext(ctx, userService);
-      await ctx.reply(getMessages(language).common.unexpectedError);
+      clearActiveFlow(ctx);
+      await ctx.reply(getMessages(language).common.actionCancelled);
+      return true;
     }
-    return true;
+
+    if (!looksLikeCustomReportDateInput(text)) {
+      clearActiveFlow(ctx);
+    } else {
+      try {
+        await handleCustomReportDateInput(ctx, text, reportService, userService);
+      } catch (error) {
+        console.error("❌ Custom report error:", error);
+        const language = await getLanguageForContext(ctx, userService);
+        await ctx.reply(getMessages(language).common.unexpectedError);
+      }
+      return true;
+    }
   }
 
   if (!pendingTransaction) {
@@ -680,6 +839,9 @@ async function handleIncomingTransactionText(
       isCancelFlowButtonText(text) ||
       (options.passThroughShortcutTransactions && isShortcutTransactionText(text))
     ) {
+      if (isCommandText(text) || isMainMenuButtonText(text)) {
+        clearActiveFlow(ctx);
+      }
       return false;
     }
 
@@ -706,7 +868,15 @@ async function handleIncomingTransactionText(
       text,
       aiTransactionParser,
       transactionService,
-      userService
+      userService,
+      undefined,
+      undefined,
+      {
+        ...(options.source ? { source: options.source } : {}),
+        ...(options.requireConfirmation !== undefined
+          ? { requireConfirmation: options.requireConfirmation }
+          : {}),
+      }
     );
     return true;
   }
@@ -758,7 +928,13 @@ async function handleIncomingTransactionText(
     transactionService,
     userService,
     pendingTransaction.type,
-    pendingTransaction.scope
+    pendingTransaction.scope,
+    {
+      ...(options.source ? { source: options.source } : {}),
+      ...(options.requireConfirmation !== undefined
+        ? { requireConfirmation: options.requireConfirmation }
+        : {}),
+    }
   );
   return true;
 }
@@ -841,10 +1017,27 @@ export function registerTransactionFlowCommand(
           : "family";
 
       try {
-        await saveParsedTransaction(ctx, transactionService, userService, {
+        const transactionData = {
           ...awaitingScopeConfirmation,
           scope,
-        });
+        };
+
+        if (awaitingScopeConfirmation.requireConfirmation) {
+          await askForTransactionConfirmation(ctx, userService, {
+            source: awaitingScopeConfirmation.source ?? "text",
+            type: transactionData.type,
+            scope,
+            amount: transactionData.amount,
+            ...(transactionData.parentCategory ? { parentCategory: transactionData.parentCategory } : {}),
+            category: transactionData.category,
+            ...(transactionData.note ? { note: transactionData.note } : {}),
+            transactionDate: transactionData.transactionDate,
+            originalText: awaitingScopeConfirmation.originalText ?? "",
+          });
+        } else {
+          await saveParsedTransaction(ctx, transactionService, userService, transactionData);
+        }
+
         ctx.session.awaitingScopeConfirmation = null;
       } catch (error) {
         console.error("❌ Scope confirmation save error:", error);
@@ -852,6 +1045,59 @@ export function registerTransactionFlowCommand(
         await ctx.reply(messages.common.unexpectedError, {
           reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
         });
+      }
+    }
+  );
+
+  bot.callbackQuery(
+    /^tr:(ok|no):(.+)$/,
+    async (ctx) => {
+      const telegramUser = ctx.from;
+
+      if (!telegramUser) {
+        await ctx.answerCallbackQuery();
+        await ctx.reply(getMessages().common.readUserError);
+        return;
+      }
+
+      const language = await userService.getUserLanguage(telegramUser.id);
+      const messages = getMessages(language);
+      const action = ctx.match[1];
+      const flowId = ctx.match[2];
+
+      if (!isActiveFlow(ctx, "transaction_confirmation", flowId)) {
+        await answerStaleCallback(ctx, messages.common.outdatedButton);
+        return;
+      }
+
+      await ctx.answerCallbackQuery();
+      const pendingConfirmation = ctx.session.pendingTransactionConfirmation;
+
+      if (!pendingConfirmation || pendingConfirmation.flowId !== flowId) {
+        await ctx.reply(messages.naturalTransaction.noConfirmationSession);
+        return;
+      }
+
+      if (action === "no") {
+        clearActiveFlow(ctx);
+        await ctx.reply(messages.naturalTransaction.confirmationCancelled);
+        return;
+      }
+
+      try {
+        await saveParsedTransaction(ctx, transactionService, userService, {
+          type: pendingConfirmation.type,
+          ...(pendingConfirmation.scope ? { scope: pendingConfirmation.scope } : {}),
+          amount: pendingConfirmation.amount,
+          ...(pendingConfirmation.parentCategory ? { parentCategory: pendingConfirmation.parentCategory } : {}),
+          category: pendingConfirmation.category,
+          ...(pendingConfirmation.note ? { note: pendingConfirmation.note } : {}),
+          transactionDate: pendingConfirmation.transactionDate,
+        });
+        clearActiveFlow(ctx);
+      } catch (error) {
+        console.error("❌ Transaction confirmation save error:", error);
+        await ctx.reply(messages.common.unexpectedError);
       }
     }
   );
@@ -1123,8 +1369,14 @@ export function registerTransactionFlowCommand(
       return;
     }
 
-    if (ctx.message.voice.duration > 60) {
-      await ctx.reply(messages.voice.voiceTranscriptionFailed);
+    const voiceDuration = ctx.message.voice.duration;
+    const maxVoiceDuration = config.voiceMaxDurationSeconds;
+
+    if (voiceDuration === undefined || voiceDuration > maxVoiceDuration) {
+      console.warn(
+        `Voice rejected: duration ${voiceDuration ?? "missing"}s exceeds ${maxVoiceDuration}s`
+      );
+      await ctx.reply(messages.voice.voiceTooLong);
       return;
     }
 
@@ -1160,7 +1412,11 @@ export function registerTransactionFlowCommand(
         transactionService,
         userService,
         receiptImportService,
-        reportService
+        reportService,
+        {
+          source: "voice",
+          requireConfirmation: true,
+        }
       );
     } catch (error) {
       console.error("❌ Voice message handling error:", error);
@@ -1184,7 +1440,11 @@ export function registerTransactionFlowCommand(
       userService,
       receiptImportService,
       reportService,
-      { passThroughShortcutTransactions: true }
+      {
+        passThroughShortcutTransactions: true,
+        source: "text",
+        requireConfirmation: config.requireTextAiConfirmation,
+      }
     );
 
     if (!handled) {

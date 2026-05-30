@@ -23,6 +23,9 @@ export type ReceiptImportPreview = {
   aiTransactions: AiReceiptTransaction[];
   selectedScope: TransactionScope;
   groupedTotalDiffers: boolean;
+  simpleAnalysisUsed?: boolean;
+  aiAnalysisUsed?: boolean;
+  aiFallbackAnalysisUsed?: boolean;
 };
 
 export type ConfirmReceiptImportResult =
@@ -87,19 +90,19 @@ export class ReceiptImportService {
         rawResponse,
       });
 
-      const aiResult = await this.aiReceiptParser.parse(normalizedReceipt, {
+      const {
+        transactions,
+        simpleAnalysisUsed,
+        aiAnalysisUsed,
+        aiFallbackAnalysisUsed,
+      } = await this.getReceiptTransactions(
+        normalizedReceipt,
         language,
         defaultCurrency,
-        ...(options.forcedScope ? { forcedScope: options.forcedScope } : {}),
-      });
-
-      if (aiResult.status === "cannot_group") {
-        await this.receiptImportRepository.markFailed(receiptImport._id, aiResult.reason);
-        throw new Error(aiResult.reason);
-      }
-
-      const selectedScope = options.forcedScope ?? this.getInitialScope(aiResult.transactions);
-      const finalTransactions = aiResult.transactions.map((transaction) =>
+        options
+      );
+      const selectedScope = options.forcedScope ?? this.getInitialScope(transactions);
+      const finalTransactions = transactions.map((transaction) =>
         this.toValidatedAiTransaction(transaction, selectedScope)
       );
 
@@ -122,6 +125,9 @@ export class ReceiptImportService {
           normalizedReceipt.fiscal.totalSum,
           finalTransactions
         ),
+        ...(simpleAnalysisUsed ? { simpleAnalysisUsed } : {}),
+        ...(aiAnalysisUsed ? { aiAnalysisUsed } : {}),
+        ...(aiFallbackAnalysisUsed ? { aiFallbackAnalysisUsed } : {}),
       };
     } catch (error) {
       if (receiptImport) {
@@ -192,6 +198,7 @@ export class ReceiptImportService {
           type: "expense",
           scope: transaction.scope,
           amount: transaction.amount,
+          ...(transaction.parentCategory ? { parentCategory: transaction.parentCategory } : {}),
           category: transaction.category,
           note: transaction.note,
           source: "receipt",
@@ -317,6 +324,135 @@ export class ReceiptImportService {
     return Math.abs(groupedTotal - receiptTotal) > 0.01;
   }
 
+  private async getReceiptTransactions(
+    normalizedReceipt: NormalizedReceipt,
+    language: string,
+    defaultCurrency: string,
+    options: ImportReceiptOptions
+  ): Promise<{
+    transactions: AiReceiptTransaction[];
+    simpleAnalysisUsed: boolean;
+    aiAnalysisUsed: boolean;
+    aiFallbackAnalysisUsed: boolean;
+  }> {
+    if (!this.aiReceiptParser.isConfigured()) {
+      console.info("Receipt AI parser is not configured; using simple receipt item fallback.");
+      return {
+        transactions: this.createSimpleFallbackTransactions(normalizedReceipt, language, options),
+        simpleAnalysisUsed: true,
+        aiAnalysisUsed: false,
+        aiFallbackAnalysisUsed: false,
+      };
+    }
+
+    try {
+      const aiResult = await this.aiReceiptParser.parse(normalizedReceipt, {
+        language,
+        defaultCurrency,
+        ...(options.forcedScope ? { forcedScope: options.forcedScope } : {}),
+      });
+
+      return {
+        transactions: aiResult.transactions,
+        simpleAnalysisUsed: false,
+        aiAnalysisUsed: !aiResult.usedFallbackProvider,
+        aiFallbackAnalysisUsed: aiResult.usedFallbackProvider,
+      };
+    } catch (error) {
+      console.error("Receipt AI parser failed; using simple receipt item fallback.", error);
+    }
+
+    return {
+      transactions: this.createSimpleFallbackTransactions(normalizedReceipt, language, options),
+      simpleAnalysisUsed: true,
+      aiAnalysisUsed: false,
+      aiFallbackAnalysisUsed: false,
+    };
+  }
+
+  private createSimpleFallbackTransactions(
+    receipt: NormalizedReceipt,
+    language: string,
+    options: ImportReceiptOptions
+  ): AiReceiptTransaction[] {
+    const scope = options.forcedScope ?? "family";
+    const fallbackCategory = this.getFallbackReceiptCategory(language);
+    const transactions = receipt.items.flatMap((item): AiReceiptTransaction[] => {
+      const amount = Number(item.sum);
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return [];
+      }
+
+      const itemName = item.name.trim();
+      const category = itemName && itemName !== "receipt"
+        ? this.cleanFallbackCategory(itemName) || itemName
+        : fallbackCategory;
+      const note = itemName && itemName !== "receipt" ? itemName : category;
+
+      return [
+        {
+          type: "expense",
+          scope,
+          amount,
+          parentCategory: "Другое",
+          category,
+          note,
+          itemNames: [note],
+        },
+      ];
+    });
+
+    if (transactions.length > 0) {
+      return transactions;
+    }
+
+    const totalAmount = Number(receipt.fiscal.totalSum);
+
+    if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+      throw new Error("No receipt items");
+    }
+
+    const note =
+      receipt.seller.retailPlace?.trim() ||
+      receipt.seller.name?.trim() ||
+      fallbackCategory;
+
+    return [
+      {
+        type: "expense",
+        scope,
+        amount: totalAmount,
+        parentCategory: "Другое",
+        category: fallbackCategory,
+        note,
+        itemNames: [note],
+      },
+    ];
+  }
+
+  private getFallbackReceiptCategory(language: string): string {
+    if (language === "ar") {
+      return "شيك";
+    }
+
+    if (language === "en") {
+      return "receipt";
+    }
+
+    return "чек";
+  }
+
+  private cleanFallbackCategory(name: string): string {
+    return name
+      .replace(/\([^)]*\b(?:шт|г|гр|кг|мл|л|%)[^)]*\)/giu, " ")
+      .replace(/\b\d+(?:[,.]\d+)?\s*(?:кг|kg|г|гр|g|мл|ml|л|l|шт|pcs)\b/giu, " ")
+      .replace(/\b\d+(?:[,.]\d+)?\s*%\b/gu, " ")
+      .replace(/\b\d+\s*[xх]\s*\d+\b/giu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   private getInitialScope(transactions: AiReceiptTransaction[]): TransactionScope {
     const personalCount = transactions.filter((transaction) => transaction.scope === "personal").length;
     const familyCount = transactions.filter((transaction) => transaction.scope === "family").length;
@@ -330,6 +466,9 @@ export class ReceiptImportService {
   ): AiReceiptTransaction {
     const scope = scopeOverride ?? transaction.scope;
     const amount = Number(transaction.amount);
+    const parentCategory = typeof transaction.parentCategory === "string"
+      ? transaction.parentCategory.trim()
+      : "";
     const category = typeof transaction.category === "string" ? transaction.category.trim() : "";
     const note = typeof transaction.note === "string" ? transaction.note.trim() : "";
     const itemNames = Array.isArray(transaction.itemNames)
@@ -356,6 +495,7 @@ export class ReceiptImportService {
       type: "expense",
       scope,
       amount,
+      ...(parentCategory ? { parentCategory } : {}),
       category,
       note,
       itemNames,

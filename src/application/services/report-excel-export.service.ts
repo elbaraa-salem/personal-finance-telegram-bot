@@ -81,13 +81,14 @@ export class ReportExcelExportService {
       { header: "Date", key: "date", width: 14 },
       { header: "Type", key: "type", width: 12 },
       { header: "Scope", key: "scope", width: 12 },
-      { header: "Amount", key: "amount", width: 14 },
+      { header: "Parent Category", key: "parentCategory", width: 22 },
       { header: "Category", key: "category", width: 24 },
+      { header: "Amount", key: "amount", width: 14 },
       { header: "Note", key: "note", width: 40 },
       { header: "Created At", key: "createdAt", width: 22 },
     ];
     transactionsSheet.views = [{ state: "frozen", ySplit: 1 }];
-    transactionsSheet.autoFilter = "A1:G1";
+    transactionsSheet.autoFilter = "A1:H1";
     transactionsSheet.getRow(1).font = { bold: true };
 
     for (const transaction of transactions) {
@@ -95,8 +96,9 @@ export class ReportExcelExportService {
         date: formatDate(transaction.transactionDate),
         type: transaction.type,
         scope: transaction.scope ?? "",
-        amount: transaction.amount,
+        parentCategory: transaction.parentCategory ?? "",
         category: transaction.category,
+        amount: transaction.amount,
         note: transaction.note ?? "",
         createdAt: formatDate(transaction.createdAt),
       });

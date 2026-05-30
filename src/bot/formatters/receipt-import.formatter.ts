@@ -27,16 +27,33 @@ export function formatReceiptImportPreview(
     "";
   const transactions = preview.aiTransactions
     .map(
-      (transaction) =>
-        `${scopeIcon(transaction.scope)} ${transaction.category}: ${formatAmount(transaction.amount, currency)}\n` +
-        formatTransactionItems(transaction.itemNames)
+      (transaction) => {
+        const category = transaction.parentCategory
+          ? `${transaction.parentCategory} / ${transaction.category}`
+          : transaction.category;
+
+        return `${scopeIcon(transaction.scope)} ${category}: ${formatAmount(transaction.amount, currency)}\n` +
+          formatTransactionItems(transaction.itemNames);
+      }
     )
     .join("\n\n");
   const warning = preview.groupedTotalDiffers
     ? `\n\n${messages.receipt.groupedTotalDiffers}`
     : "";
+  const simpleAnalysisMessage = preview.simpleAnalysisUsed
+    ? `${messages.receipt.receiptSimpleAnalysisUsed}\n`
+    : "";
+  const aiAnalysisMessage = preview.aiAnalysisUsed
+    ? `${messages.receipt.receiptAiAnalysisUsed}\n`
+    : "";
+  const aiFallbackAnalysisMessage = preview.aiFallbackAnalysisUsed
+    ? `${messages.receipt.receiptAiFallbackAnalysisUsed}\n`
+    : "";
 
   return (
+    `${aiAnalysisMessage}` +
+    `${aiFallbackAnalysisMessage}` +
+    `${simpleAnalysisMessage}` +
     `${messages.receipt.receiptFound}${seller ? `: ${seller}` : ""}\n` +
     `${messages.receipt.receiptDate}: ${formatDate(preview.normalizedReceipt.fiscal.dateTime)}\n` +
     `${messages.receipt.receiptTotal}: ${formatAmount(preview.normalizedReceipt.fiscal.totalSum, currency)}\n` +

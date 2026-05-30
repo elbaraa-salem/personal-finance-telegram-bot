@@ -3,22 +3,24 @@ import { SupportedLanguage } from "../i18n/language";
 import { getMessages } from "../i18n/translations";
 
 export const settingsOptionCallbacks = {
-  language: "settings:language",
-  currency: "settings:currency",
-  expenseScopeMode: "settings:expense_scope_mode",
-  timezone: "settings:timezone",
+  language: "s:lang",
+  currency: "s:cur",
+  expenseScopeMode: "s:exp",
+  timezone: "s:tz",
 } as const;
 
 export function createSettingsOptionsKeyboard(
-  language: SupportedLanguage
+  language: SupportedLanguage,
+  flowId?: string
 ): InlineKeyboard {
   const menu = getMessages(language).menu;
+  const data = (callback: string) => flowId ? `${callback}:${flowId}` : callback;
 
   return new InlineKeyboard()
-    .text(menu.language, settingsOptionCallbacks.language)
-    .text(menu.currency, settingsOptionCallbacks.currency)
+    .text(menu.language, data(settingsOptionCallbacks.language))
+    .text(menu.currency, data(settingsOptionCallbacks.currency))
     .row()
-    .text(menu.expenseModeSettingsButton, settingsOptionCallbacks.expenseScopeMode)
+    .text(menu.expenseModeSettingsButton, data(settingsOptionCallbacks.expenseScopeMode))
     .row()
-    .text(menu.timezoneSettings, settingsOptionCallbacks.timezone);
+    .text(menu.timezoneSettings, data(settingsOptionCallbacks.timezone));
 }

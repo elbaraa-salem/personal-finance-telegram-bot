@@ -6,9 +6,10 @@ import { getMessages } from "../i18n/translations";
 export type MonthSelectionCallbackPrefix = "report_month" | "history_month";
 type CreateMonthSelectionKeyboardOptions = {
   includeCustomRange?: boolean;
+  flowId?: string;
 };
 
-export const reportCustomRangeCallback = "report_custom_range";
+export const reportCustomRangeCallback = "r:custom";
 
 function formatMonthButtonLabel(month: TransactionMonthItem): string {
   return `${month.year}-${String(month.month).padStart(2, "0")}`;
@@ -43,7 +44,7 @@ export function createMonthSelectionKeyboard(
 
     keyboard.text(
       getMessages(language).report.customRangeButton,
-      reportCustomRangeCallback
+      options.flowId ? `${reportCustomRangeCallback}:${options.flowId}` : reportCustomRangeCallback
     );
   }
 

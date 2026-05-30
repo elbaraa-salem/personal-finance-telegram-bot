@@ -3,30 +3,34 @@ import { InlineKeyboard } from "grammy";
 import { SupportedLanguage } from "../i18n/language";
 
 export const languageCallbacks = {
-  ar: "language:ar",
-  ru: "language:ru",
-  en: "language:en",
+  ar: "lang:ar",
+  ru: "lang:ru",
+  en: "lang:en",
 } as const;
 
-export function createLanguageKeyboard(): InlineKeyboard {
+export function createLanguageKeyboard(flowId?: string): InlineKeyboard {
+  const data = (callback: string) => flowId ? `${callback}:${flowId}` : callback;
+
   return new InlineKeyboard()
-    .text("العربية", languageCallbacks.ar)
-    .text("Русский", languageCallbacks.ru)
-    .text("English", languageCallbacks.en);
+    .text("العربية", data(languageCallbacks.ar))
+    .text("Русский", data(languageCallbacks.ru))
+    .text("English", data(languageCallbacks.en));
 }
 
 export function getLanguageFromCallback(
   callbackData: string
 ): SupportedLanguage | null {
-  if (callbackData === languageCallbacks.ar) {
+  const baseCallback = callbackData.split(":").slice(0, 2).join(":");
+
+  if (baseCallback === languageCallbacks.ar) {
     return "ar";
   }
 
-  if (callbackData === languageCallbacks.ru) {
+  if (baseCallback === languageCallbacks.ru) {
     return "ru";
   }
 
-  if (callbackData === languageCallbacks.en) {
+  if (baseCallback === languageCallbacks.en) {
     return "en";
   }
 

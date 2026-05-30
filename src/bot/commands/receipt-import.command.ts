@@ -30,6 +30,7 @@ function getMessage(language: SupportedLanguage, key: string): string {
       noSession: "لا توجد عملية استيراد شيك نشطة.",
       editPrompt: "انسخ البيانات التالية وعدلها، ثم أرسلها مرة أخرى بنفس الشكل:",
       invalidEdit: "لم أستطع فهم البيانات المعدلة. استخدم الشكل: - اسم المنتج | السعر | التصنيف",
+      receiptImportRubOnly: "استيراد الشيكات مدعوم حاليًا للروبل الروسي فقط، لأن الشيكات تُقرأ من خدمة روسية. غيّر العملة إلى RUB من الإعدادات إذا أردت استخدام هذه الخاصية.",
     },
     ru: {
       received: "📸 Фото чека получено. Извлекаю данные...",
@@ -41,6 +42,7 @@ function getMessage(language: SupportedLanguage, key: string): string {
       noSession: "Нет активного импорта чека.",
       editPrompt: "Скопируйте данные ниже, исправьте их и отправьте обратно в таком же формате:",
       invalidEdit: "Не получилось понять исправленные данные. Используйте формат: - название | цена | категория",
+      receiptImportRubOnly: "Импорт чеков сейчас поддерживается только для валюты RUB, потому что чеки читаются через российский сервис. Измените валюту на RUB в настройках, если хотите использовать эту функцию.",
     },
     en: {
       received: "📸 Receipt photo received. Extracting data...",
@@ -52,6 +54,7 @@ function getMessage(language: SupportedLanguage, key: string): string {
       noSession: "There is no active receipt import.",
       editPrompt: "Copy the data below, edit it, then send it back in the same format:",
       invalidEdit: "I could not understand the edited data. Use this format: - item name | amount | category",
+      receiptImportRubOnly: "Receipt import is currently supported only for RUB, because receipts are read through a Russian service. Change your currency to RUB in settings if you want to use this feature.",
     },
   };
 
@@ -228,6 +231,10 @@ function getForcedScopeFromUserMode(mode: ExpenseScopeMode): TransactionScope | 
   return undefined;
 }
 
+function canUseReceiptImport(currency: string | null | undefined): boolean {
+  return currency === "RUB";
+}
+
 async function saveReceiptTransactions(
   ctx: BotContext,
   transactionService: TransactionService,
@@ -257,6 +264,7 @@ async function saveReceiptTransactions(
       type: "expense",
       scope: scope!,
       amount: item.amount,
+      parentCategory: "Другое",
       category: item.category || "receipt",
       note: receipt.merchant ? `${receipt.merchant} | ${item.name}` : item.name,
       source: "receipt",
@@ -289,6 +297,16 @@ export function registerReceiptImportCommand(
     }
 
     const language = await userService.getUserLanguage(telegramUser.id);
+    const currency = await userService.getUserCurrency(telegramUser.id);
+    const expenseScopeMode = await userService.getExpenseScopeMode(telegramUser.id);
+
+    if (!canUseReceiptImport(currency)) {
+      console.warn(`Receipt import blocked: user currency is ${currency ?? "missing"}`);
+      await ctx.reply(getMessage(language, "receiptImportRubOnly"), {
+        reply_markup: createMainMenuKeyboard(language, expenseScopeMode),
+      });
+      return;
+    }
 
     if (!receiptExtractor) {
       await ctx.reply(getMessage(language, "noApiKey"));

@@ -3,6 +3,7 @@ import {
   TransactionScope,
   TransactionType,
 } from "../../infrastructure/database/models/transaction.model";
+import { callChatWithFallback, extractJson } from "./ai-client.service";
 import { extractRelativeDateFromText } from "./relative-date-parser.service";
 
 type MissingField = "amount" | "type" | "category" | "date" | "scope";
@@ -14,6 +15,7 @@ export type AiTransactionParseResult =
       type: TransactionType;
       scope: TransactionScope | null;
       amount: number;
+      parentCategory?: string;
       category: string;
       transactionDate: string;
       note: string;
@@ -38,165 +40,6 @@ type ParseOptions = {
   forcedScope?: TransactionScope;
 };
 
-export interface AiTextProvider {
-  complete(prompt: string): Promise<string>;
-}
-
-type OpenRouterResponse = {
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
-  }>;
-};
-
-type GroqChatResponse = OpenRouterResponse & {
-  error?: unknown;
-};
-
-function truncateForLog(value: string, maxLength = 4000): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
-}
-
-export class OpenRouterTextProvider implements AiTextProvider {
-  constructor(
-    private readonly apiKey: string,
-    private readonly model: string,
-    private readonly baseUrl: string
-  ) {}
-
-  async complete(prompt: string): Promise<string> {
-    const response = await fetch(
-      `${this.baseUrl.replace(/\/$/, "")}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-          temperature: 0,
-          response_format: {
-            type: "json_object",
-          },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      throw new Error(
-        `AI provider request failed: ${response.status}${
-          errorText ? ` - ${errorText}` : ""
-        }`
-      );
-    }
-
-    const data = (await response.json()) as OpenRouterResponse;
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error("AI provider returned an empty response.");
-    }
-
-    return content;
-  }
-}
-
-export class GroqTextProvider implements AiTextProvider {
-  constructor(
-    private readonly apiKey: string,
-    private readonly model: string
-  ) {}
-
-  async complete(prompt: string): Promise<string> {
-    const response = await fetch(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-          temperature: 0,
-          response_format: {
-            type: "json_object",
-          },
-        }),
-      }
-    );
-    const responseText = await response.text();
-
-    if (!response.ok) {
-      console.error(`Groq AI provider request failed: HTTP ${response.status}`);
-      console.error(`Groq AI provider response body:\n${truncateForLog(responseText)}`);
-      throw new Error("Groq AI provider request failed.");
-    }
-
-    let data: GroqChatResponse;
-
-    try {
-      data = JSON.parse(responseText) as GroqChatResponse;
-    } catch (error) {
-      console.error("Groq AI provider JSON parse error:", error);
-      console.error(`Groq AI provider raw response:\n${truncateForLog(responseText)}`);
-      throw new Error("Groq AI provider returned invalid JSON.");
-    }
-
-    if (data.error) {
-      console.error("Groq AI provider returned an error:", data.error);
-      throw new Error("Groq AI provider returned an error.");
-    }
-
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error("Groq AI provider returned an empty response.");
-    }
-
-    return content;
-  }
-}
-
-export function extractJson(text: string): string {
-  const trimmedText = text.trim();
-
-  if (trimmedText.startsWith("```")) {
-    return trimmedText
-      .replace(/^```(?:json)?/i, "")
-      .replace(/```$/i, "")
-      .trim();
-  }
-
-  const firstBraceIndex = trimmedText.indexOf("{");
-  const lastBraceIndex = trimmedText.lastIndexOf("}");
-
-  if (
-    firstBraceIndex === -1 ||
-    lastBraceIndex === -1 ||
-    lastBraceIndex <= firstBraceIndex
-  ) {
-    throw new Error("AI did not return JSON.");
-  }
-
-  return trimmedText.slice(firstBraceIndex, lastBraceIndex + 1);
-}
-
 function toOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -218,6 +61,35 @@ function isMissingField(value: unknown): value is MissingField {
     value === "scope"
   );
 }
+
+const EXPENSE_PARENT_CATEGORIES = new Set([
+  "Продукты",
+  "Кафе и рестораны",
+  "Транспорт",
+  "Жильё",
+  "Коммунальные услуги",
+  "Связь и интернет",
+  "Здоровье",
+  "Аптека",
+  "Одежда",
+  "Бытовая химия",
+  "Дом",
+  "Подписки",
+  "Образование",
+  "Работа",
+  "Подарки",
+  "Долги",
+  "Развлечения",
+  "Другое",
+]);
+
+const INCOME_PARENT_CATEGORIES = new Set([
+  "Работа",
+  "Уроки",
+  "Долг",
+  "Подарок",
+  "Другое",
+]);
 
 function isIsoDate(value: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -400,6 +272,7 @@ function validateParseResult(value: unknown): AiTransactionParseResult {
   const type = result.type;
   const scope = result.scope;
   const amount = normalizeAiAmount(result.amount);
+  const parentCategory = toOptionalString(result.parentCategory);
   const category = toOptionalString(result.category);
   const transactionDate = toOptionalString(result.transactionDate);
   const note = toOptionalString(result.note) ?? category ?? "";
@@ -430,12 +303,21 @@ function validateParseResult(value: unknown): AiTransactionParseResult {
     throw new Error("AI confidence is invalid.");
   }
 
+  const allowedParentCategories = type === "income"
+    ? INCOME_PARENT_CATEGORIES
+    : EXPENSE_PARENT_CATEGORIES;
+  const normalizedParentCategory =
+    parentCategory && allowedParentCategories.has(parentCategory)
+      ? parentCategory
+      : undefined;
+
   return {
     status: "transaction",
     confidence,
     type,
     scope: scope ?? null,
     amount,
+    ...(normalizedParentCategory ? { parentCategory: normalizedParentCategory } : {}),
     category,
     transactionDate: transactionDate && isIsoDate(transactionDate) ? transactionDate : "",
     note,
@@ -540,7 +422,7 @@ ${forcedTypeText}
 ${forcedScopeText}
 
 Output one of these exact shapes:
-{"status":"transaction","confidence":0.95,"type":"income","scope":null,"amount":1000,"category":"salary","transactionDate":null,"note":"salary","currency":"RUB","needsScopeConfirmation":false}
+{"status":"transaction","confidence":0.95,"type":"income","scope":null,"amount":1000,"parentCategory":"Работа","category":"salary","transactionDate":null,"note":"salary","currency":"RUB","needsScopeConfirmation":false}
 {"status":"not_transaction","reason":"..."}
 {"status":"missing_details","missingFields":["amount"],"question":"..."}
 
@@ -571,6 +453,11 @@ Rules:
 - If the user writes in English, category must be English, for example: work, groceries, coffee, transport, tutoring, salary.
 - Do not translate category to English unless the user's message is in English.
 - The category does not have to be copied exactly from the user's words; choose a short, natural category in the same language.
+- Return parentCategory when possible.
+- For expense parentCategory, use exactly one of: Продукты, Кафе и рестораны, Транспорт, Жильё, Коммунальные услуги, Связь и интернет, Здоровье, Аптека, Одежда, Бытовая химия, Дом, Подписки, Образование, Работа, Подарки, Долги, Развлечения, Другое.
+- For income parentCategory, use exactly one of: Работа, Уроки, Долг, Подарок, Другое.
+- parentCategory is a broad controlled Russian category. category remains the specific clean item/service in the user's language.
+- Clean category by removing brand names, package sizes, weights, volumes, percentages, and marketing details when the text contains product names.
 - Put extra details such as person names, shop names, or context into note.
 - Example Russian: "1500 работа урок с Сергей" => category "репетиторство" or "работа", not "tutoring".
 - Example Arabic: "أخذت 1500 من درس مع سيرجي" => category "تدريس", not "tutoring".
@@ -582,24 +469,24 @@ Rules:
 Examples:
 Input: "ярче продукты 2026-05-01 1233"
 Output:
-{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":1233,"category":"ярче","transactionDate":"2026-05-01","note":"продукты","currency":"RUB","needsScopeConfirmation":true}
+{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":1233,"parentCategory":"Продукты","category":"продукты","transactionDate":"2026-05-01","note":"ярче","currency":"RUB","needsScopeConfirmation":true}
 
 Input: "17-05-2026 урок с Мария 3000 работа"
 Output:
-{"status":"transaction","confidence":0.95,"type":"income","scope":null,"amount":3000,"category":"работа","transactionDate":"2026-05-17","note":"урок с Мария","currency":"RUB","needsScopeConfirmation":false}
+{"status":"transaction","confidence":0.95,"type":"income","scope":null,"amount":3000,"parentCategory":"Уроки","category":"работа","transactionDate":"2026-05-17","note":"урок с Мария","currency":"RUB","needsScopeConfirmation":false}
 
 Assume current date is 2026-05-29 for these relative-date examples:
 Input: "اشتريت عصير قصب من يومين ب ٣٠٠ روبل"
 Output:
-{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":300,"category":"عصير قصب","transactionDate":"2026-05-27","note":null,"currency":"RUB","needsScopeConfirmation":true}
+{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":300,"parentCategory":"Продукты","category":"عصير قصب","transactionDate":"2026-05-27","note":null,"currency":"RUB","needsScopeConfirmation":true}
 
 Input: "اشتريت لحمة 500 روبل الجمعة اللي فاتت"
 Output:
-{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":500,"category":"لحمة","transactionDate":"2026-05-22","note":null,"currency":"RUB","needsScopeConfirmation":true}
+{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":500,"parentCategory":"Продукты","category":"لحمة","transactionDate":"2026-05-22","note":null,"currency":"RUB","needsScopeConfirmation":true}
 
 Input: "يوم السبت اللي فات اشتريت بصل بخمسين جنيه"
 Output:
-{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":50,"category":"بصل","transactionDate":"2026-05-23","note":null,"currency":"EGP","needsScopeConfirmation":true}
+{"status":"transaction","confidence":0.95,"type":"expense","scope":null,"amount":50,"parentCategory":"Продукты","category":"بصل","transactionDate":"2026-05-23","note":null,"currency":"EGP","needsScopeConfirmation":true}
 
 Input: "купил мясо в прошлую пятницу за 500 рублей"
 Rule: transactionDate is the previous Friday strictly before the current date.
@@ -613,50 +500,37 @@ ${JSON.stringify(text)}
 }
 
 export class AiTransactionParserService {
-  private readonly provider: AiTextProvider | null;
-
-  constructor() {
-    if (config.aiProvider === "groq") {
-      if (!config.groqApiKey) {
-        console.error("Groq AI provider is configured but GROQ_API_KEY is missing.");
-        this.provider = null;
-        return;
-      }
-
-      this.provider = new GroqTextProvider(
-        config.groqApiKey,
-        config.groqChatModel
-      );
-      return;
-    }
-
-    if (!config.aiApiKey || !config.aiModel) {
-      this.provider = null;
-      return;
-    }
-
-    this.provider = new OpenRouterTextProvider(
-      config.aiApiKey,
-      config.aiModel,
-      config.aiBaseUrl
-    );
-  }
-
   isConfigured(): boolean {
-    return this.provider !== null;
+    return config.aiProvider !== "none" || config.aiFallbackProvider !== "none";
   }
 
   async parse(
     text: string,
     options: ParseOptions
   ): Promise<AiTransactionParseResult> {
-    if (!this.provider) {
+    if (!this.isConfigured()) {
       throw new Error("AI parsing is not configured.");
     }
 
-    const responseText = await this.provider.complete(createPrompt(text, options));
-    const parsedJson = JSON.parse(extractJson(responseText));
-    const parsedResult = validateParseResult(parsedJson);
+    const result = await callChatWithFallback<AiTransactionParseResult>({
+      prompt: createPrompt(text, options),
+      primaryProvider: config.aiProvider,
+      fallbackProvider: config.aiFallbackProvider,
+      timeoutMs: config.aiRequestTimeoutMs,
+      logPrefix: "AI text parser",
+      groqApiKey: config.groqApiKey,
+      groqModel: config.groqChatModel,
+      openrouterApiKey: config.openrouterApiKey ?? config.aiApiKey,
+      openrouterModel: config.openrouterChatModel ?? config.aiModel,
+      openrouterBaseUrl: config.openrouterBaseUrl ?? config.aiBaseUrl,
+      validateContent: (content) => validateParseResult(JSON.parse(extractJson(content))),
+    });
+
+    if (!result.ok) {
+      throw new Error(`AI parsing failed: ${result.error}`);
+    }
+
+    const parsedResult = result.value;
     const datedResult = applyDeterministicDate(
       parsedResult,
       text,

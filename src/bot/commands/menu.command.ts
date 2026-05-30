@@ -37,6 +37,12 @@ import {
   createTimezoneKeyboard,
   isSupportedTimezone,
 } from "../keyboards/timezone.keyboard";
+import {
+  answerStaleCallback,
+  clearActiveFlow,
+  isActiveFlow,
+  startFlow,
+} from "../session/flow-session";
 
 async function replyWithReport(
   ctx: Context,
@@ -132,9 +138,10 @@ function parseHistoryMonthCallback(
 }
 
 async function replyWithAvailableReportMonths(
-  ctx: Context,
+  ctx: BotContext,
   reportService: ReportService,
-  userService: UserService
+  userService: UserService,
+  flowId?: string
 ): Promise<void> {
   const telegramUser = ctx.from;
 
@@ -154,7 +161,7 @@ async function replyWithAvailableReportMonths(
         months,
         "report_month",
         language,
-        { includeCustomRange: true }
+        { includeCustomRange: true, ...(flowId ? { flowId } : {}) }
       ),
     });
   } catch (error) {
@@ -364,7 +371,8 @@ export function registerMenuCommandHandlers(
   });
 
   bot.hears(getMainMenuButtonTexts("moreReports"), async (ctx) => {
-    await replyWithAvailableReportMonths(ctx, reportService, userService);
+    const flowId = startFlow(ctx, "custom_report");
+    await replyWithAvailableReportMonths(ctx, reportService, userService, flowId);
   });
 
   bot.hears(getMainMenuButtonTexts("manualEntry"), async (ctx) => {
@@ -418,19 +426,28 @@ export function registerMenuCommandHandlers(
       );
     });
 
-    bot.callbackQuery(reportCustomRangeCallback, async (ctx) => {
-      await ctx.answerCallbackQuery();
-
+    bot.callbackQuery(/^r:custom:(.+)$/, async (ctx) => {
       const telegramUser = ctx.from;
 
       if (!telegramUser) {
+        await ctx.answerCallbackQuery();
         await ctx.reply(getMessages().common.readUserError);
         return;
       }
 
       const language = await userService.getUserLanguage(telegramUser.id);
+      const messages = getMessages(language);
+      const flowId = ctx.match[1] ?? "";
+
+      if (!isActiveFlow(ctx, "custom_report", flowId)) {
+        await answerStaleCallback(ctx, messages.common.outdatedButton);
+        return;
+      }
+
+      await ctx.answerCallbackQuery();
 
       ctx.session.pendingCustomReport = {
+        flowId,
         step: "from",
       };
 
@@ -509,62 +526,104 @@ export function registerMenuCommandHandlers(
         }
 
         const language = await userService.getUserLanguage(telegramUser.id);
+        const flowId = startFlow(ctx, "settings");
 
         await ctx.reply(getMessages(language).menu.settings, {
-            reply_markup: createSettingsOptionsKeyboard(language),
+            reply_markup: createSettingsOptionsKeyboard(language, flowId),
         });
     });
 
-    bot.callbackQuery(settingsOptionCallbacks.language, async (ctx) => {
+    bot.callbackQuery(/^s:lang:(.+)$/, async (ctx) => {
+        const language = ctx.from
+          ? await userService.getUserLanguage(ctx.from.id)
+          : "en";
+        const messages = getMessages(language);
+        const flowId = ctx.match[1] ?? "";
+
+        if (!isActiveFlow(ctx, "settings", flowId)) {
+            await answerStaleCallback(ctx, messages.common.outdatedButton);
+            return;
+        }
+
         await ctx.answerCallbackQuery();
-        await askForLanguage(ctx);
+        const nextFlowId = startFlow(ctx, "language_settings");
+        await askForLanguage(ctx, nextFlowId);
     });
 
-        bot.callbackQuery(settingsOptionCallbacks.currency, async (ctx) => {
+        bot.callbackQuery(/^s:cur:(.+)$/, async (ctx) => {
+        const language = ctx.from
+          ? await userService.getUserLanguage(ctx.from.id)
+          : "en";
+        const messages = getMessages(language);
+        const flowId = ctx.match[1] ?? "";
+
+        if (!isActiveFlow(ctx, "settings", flowId)) {
+            await answerStaleCallback(ctx, messages.common.outdatedButton);
+            return;
+        }
+
         await ctx.answerCallbackQuery();
+        startFlow(ctx, "currency_settings");
         await askForCurrency(ctx, userService);
     });
 
-    bot.callbackQuery(settingsOptionCallbacks.expenseScopeMode, async (ctx) => {
-        await ctx.answerCallbackQuery();
-
+    bot.callbackQuery(/^s:exp:(.+)$/, async (ctx) => {
         const telegramUser = ctx.from;
 
         if (!telegramUser) {
+            await ctx.answerCallbackQuery();
             await ctx.reply(getMessages().common.readUserError);
             return;
         }
 
         const language = await userService.getUserLanguage(telegramUser.id);
+        const messages = getMessages(language);
+        const flowId = ctx.match[1] ?? "";
+
+        if (!isActiveFlow(ctx, "settings", flowId)) {
+            await answerStaleCallback(ctx, messages.common.outdatedButton);
+            return;
+        }
+
+        await ctx.answerCallbackQuery();
+        const nextFlowId = startFlow(ctx, "expense_scope_settings");
 
         await ctx.reply(getMessages(language).expenseScopeMode.question, {
-            reply_markup: createExpenseScopeModeKeyboard(language),
+            reply_markup: createExpenseScopeModeKeyboard(language, nextFlowId),
         });
     });
 
-    bot.callbackQuery(settingsOptionCallbacks.timezone, async (ctx) => {
-        await ctx.answerCallbackQuery();
-
+    bot.callbackQuery(/^s:tz:(.+)$/, async (ctx) => {
         const telegramUser = ctx.from;
 
         if (!telegramUser) {
+            await ctx.answerCallbackQuery();
             await ctx.reply(getMessages().common.readUserError);
             return;
         }
 
         const language = await userService.getUserLanguage(telegramUser.id);
+        const messages = getMessages(language);
+        const flowId = ctx.match[1] ?? "";
+
+        if (!isActiveFlow(ctx, "settings", flowId)) {
+            await answerStaleCallback(ctx, messages.common.outdatedButton);
+            return;
+        }
+
+        await ctx.answerCallbackQuery();
+        const nextFlowId = startFlow(ctx, "timezone_settings");
 
         await ctx.reply(getMessages(language).timezone.choose, {
-            reply_markup: createTimezoneKeyboard(),
+            reply_markup: createTimezoneKeyboard(nextFlowId),
         });
     });
 
-    bot.callbackQuery(/^timezone:(.+)$/, async (ctx) => {
-        await ctx.answerCallbackQuery();
-
+    bot.callbackQuery(/^tz:(.+):(.+)$/, async (ctx) => {
         const telegramUser = ctx.from;
 
         if (!telegramUser) {
+            await ctx.answerCallbackQuery();
             await ctx.reply(getMessages().common.readUserError);
             return;
         }
@@ -572,6 +631,14 @@ export function registerMenuCommandHandlers(
         const timezone = ctx.match[1] ?? "";
         const language = await userService.getUserLanguage(telegramUser.id);
         const messages = getMessages(language);
+        const flowId = ctx.match[2] ?? "";
+
+        if (!isActiveFlow(ctx, "timezone_settings", flowId)) {
+            await answerStaleCallback(ctx, messages.common.outdatedButton);
+            return;
+        }
+
+        await ctx.answerCallbackQuery();
 
         if (!isSupportedTimezone(timezone)) {
             await ctx.reply(messages.common.unexpectedError);
@@ -579,24 +646,20 @@ export function registerMenuCommandHandlers(
         }
 
         await userService.setUserTimezone(telegramUser.id, timezone);
+        const settingsFlowId = startFlow(ctx, "settings");
 
         await ctx.reply(messages.timezone.updated(timezone), {
-            reply_markup: createSettingsOptionsKeyboard(language),
+            reply_markup: createSettingsOptionsKeyboard(language, settingsFlowId),
         });
     });
 
     bot.callbackQuery(
-      [
-        expenseScopeModeCallbacks.separate,
-        expenseScopeModeCallbacks.personalOnly,
-        expenseScopeModeCallbacks.familyOnly,
-      ],
+      /^exp:(separate|personal_only|family_only):(.+)$/,
       async (ctx) => {
-        await ctx.answerCallbackQuery();
-
         const telegramUser = ctx.from;
 
         if (!telegramUser) {
+          await ctx.answerCallbackQuery();
           await ctx.reply(getMessages().common.readUserError);
           return;
         }
@@ -604,6 +667,14 @@ export function registerMenuCommandHandlers(
         const mode = getExpenseScopeModeFromCallback(ctx.callbackQuery.data);
         const language = await userService.getUserLanguage(telegramUser.id);
         const messages = getMessages(language);
+        const flowId = ctx.match[2] ?? "";
+
+        if (!isActiveFlow(ctx, "expense_scope_settings", flowId)) {
+          await answerStaleCallback(ctx, messages.common.outdatedButton);
+          return;
+        }
+
+        await ctx.answerCallbackQuery();
 
         if (!mode) {
           await ctx.reply(messages.common.unexpectedError);
@@ -611,6 +682,7 @@ export function registerMenuCommandHandlers(
         }
 
         await userService.setExpenseScopeMode(telegramUser.id, mode);
+        clearActiveFlow(ctx);
 
         await ctx.reply(messages.expenseScopeMode.updated, {
           reply_markup: createMainMenuKeyboard(language, mode),

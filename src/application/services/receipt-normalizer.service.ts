@@ -64,6 +64,16 @@ function optionalMoneyFromKopecks(value: unknown): number | undefined {
   return Number.isFinite(amount) ? amount / 100 : undefined;
 }
 
+function optionalNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+
+  const numberValue = typeof value === "number" ? value : Number(value);
+
+  return Number.isFinite(numberValue) ? numberValue : undefined;
+}
+
 export class ReceiptNormalizerService {
   normalizeProverkachekaResponse(response: unknown): NormalizedReceipt {
     const root = asRecord(response, "Proverkacheka response");
@@ -76,9 +86,7 @@ export class ReceiptNormalizerService {
     const json = asRecord(data.json, "Proverkacheka receipt JSON");
     const rawItems = json.items;
 
-    if (!Array.isArray(rawItems) || rawItems.length === 0) {
-      throw new Error("Receipt has no items.");
-    }
+    const receiptItems = Array.isArray(rawItems) ? rawItems : [];
 
     const dateTimeText = optionalString(json.dateTime);
     const dateTime = dateTimeText ? new Date(dateTimeText) : new Date(Number.NaN);
@@ -99,24 +107,26 @@ export class ReceiptNormalizerService {
     const retailPlace = optionalString(json.retailPlace);
     const address = optionalString(metadata.address);
 
-    const items = rawItems.map((itemValue, index) => {
+    const items = receiptItems.flatMap((itemValue, index) => {
       const item = asRecord(itemValue, `Receipt item ${index + 1}`);
-      const name = optionalString(item.name);
-      const quantity = typeof item.quantity === "number" ? item.quantity : Number(item.quantity);
+      const name = optionalString(item.name) ?? "receipt";
+      const quantity = optionalNumber(item.quantity) ?? 1;
+      const price = optionalMoneyFromKopecks(item.price);
+      const sum = optionalMoneyFromKopecks(item.sum) ?? (
+        price !== undefined && Number.isFinite(quantity) && quantity > 0
+          ? price * quantity
+          : undefined
+      );
 
-      if (!name) {
-        throw new Error(`Receipt item ${index + 1} has no name.`);
-      }
-
-      if (!Number.isFinite(quantity) || quantity <= 0) {
-        throw new Error(`Receipt item ${index + 1} quantity is invalid.`);
+      if (!Number.isFinite(quantity) || quantity <= 0 || sum === undefined || sum <= 0) {
+        return [];
       }
 
       return {
         name,
-        price: moneyFromKopecks(item.price, `items[${index}].price`),
+        price: price ?? sum / quantity,
         quantity,
-        sum: moneyFromKopecks(item.sum, `items[${index}].sum`),
+        sum,
       };
     });
 

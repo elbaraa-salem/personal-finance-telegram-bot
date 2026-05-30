@@ -14,6 +14,7 @@ type AddTransactionData = {
   type: TransactionType;
   scope?: TransactionScope;
   amount: number;
+  parentCategory?: string;
   category: string;
   note?: string;
   source?: TransactionSource;
@@ -47,6 +48,7 @@ export class TransactionService {
                 type: data.type,
                 ...(data.type === "expense" ? { scope: data.scope ?? "family" } : {}),
                 amount: data.amount,
+                ...(data.parentCategory ? { parentCategory: data.parentCategory } : {}),
                 category: data.category,
                 transactionDate: data.transactionDate ?? getTodayDateOnly(timezone),
                 ...(data.note ? { note: data.note } : {}),
@@ -85,6 +87,7 @@ export class TransactionService {
                 type: item.type,
                 ...(item.type === "expense" ? { scope: item.scope ?? "family" } : {}),
                 amount: item.amount,
+                ...(item.parentCategory ? { parentCategory: item.parentCategory } : {}),
                 category: item.category,
                 transactionDate: item.transactionDate ?? getTodayDateOnly(timezone),
                 ...(item.note ? { note: item.note } : {}),

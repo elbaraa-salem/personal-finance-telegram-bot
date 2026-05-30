@@ -17,6 +17,7 @@ export interface TransactionDocument {
   type: TransactionType;
   scope?: TransactionScope;
   amount: number;
+  parentCategory?: string;
   category: string;
   note?: string;
   source?: TransactionSource;
@@ -55,6 +56,12 @@ const transactionSchema = new Schema<TransactionDocument>(
       type: String,
       required: true,
       trim: true,
+    },
+    parentCategory: {
+      type: String,
+      required: false,
+      trim: true,
+      index: true,
     },
     note: {
       type: String,

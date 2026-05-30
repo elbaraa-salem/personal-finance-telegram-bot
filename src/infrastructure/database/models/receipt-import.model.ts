@@ -21,6 +21,7 @@ export type ReceiptImportAiTransaction = {
   type: "expense";
   scope: TransactionScope;
   amount: number;
+  parentCategory?: string;
   category: string;
   note: string;
   itemNames: string[];
@@ -76,6 +77,11 @@ const receiptImportAiTransactionSchema = new Schema<ReceiptImportAiTransaction>(
     category: {
       type: String,
       required: true,
+      trim: true,
+    },
+    parentCategory: {
+      type: String,
+      required: false,
       trim: true,
     },
     note: {

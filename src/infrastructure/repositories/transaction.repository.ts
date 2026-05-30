@@ -12,6 +12,7 @@ type CreateTransactionData = {
   type: TransactionType;
   scope?: TransactionScope;
   amount: number;
+  parentCategory?: string;
   category: string;
   transactionDate: Date;
   note?: string;
